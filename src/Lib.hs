@@ -80,7 +80,7 @@ falseValue :: Integer
 falseValue = 47  -- 00101111
 
 trueValue :: Integer
-trueValue = 111 -- 01101111
+trueValue = 111  -- 01101111
 
 instance InmediateRepr Bool where
   inmediateRepr False = falseValue
@@ -100,6 +100,10 @@ fxadd1 :: Expr -> Code ()
 fxadd1 = unaryPrim $
   emit $ "    addl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
 
+fxsub1 :: Expr -> Code ()
+fxsub1 = unaryPrim $
+  emit $ "    subl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
+
 charToFixNum :: Expr -> Code ()
 charToFixNum = unaryPrim $
   emit $ "    sarl $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the right 6 bits (remember char tag is 00001111)
@@ -109,12 +113,21 @@ fixNumToChar = unaryPrim $ do
   emit $ "    sall $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the left 6 bits
   emit $ "    orl $" ++ show charTag ++ ", %eax" -- add char tag
 
-
+isFixnum :: Expr -> Code ()
+isFixnum = unaryPrim $ do
+  emit $ "    and $" ++ show 3 ++ ", %al"         -- extract the first 2 bits
+  emit $ "    cmp $" ++ show 0 ++ ", %al"         -- compare them with 0
+  emit $ "    sete %al"                           -- set %al to the result of equals
+  emit $ "    movzbl %al, %eax"                   -- mov %al to %eax and pad the remaining bits with 0: https://en.wikibooks.org/wiki/X86_Assembly/Data_Transfer#Move_with_zero_extend --> why is this needed?
+  emit $ "    sal $6, %al"                        -- move the result bit 6 bits to the left
+  emit $ "    or $" ++ show falseValue ++ ", %al" -- or with the false value to return a "boolean" in the expected format
 
 type UnaryPrim = (String, Expr -> Code ())
 
 unaryPrims :: [UnaryPrim]
 unaryPrims = [ ("fxadd1", fxadd1)
+             , ("fxsub1", fxsub1)
              , ("char->fixnum", charToFixNum)
              , ("fixnum->char", fixNumToChar)
+             , ("fixnum?", isFixnum)
              ]

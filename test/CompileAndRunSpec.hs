@@ -44,8 +44,18 @@ primitiveTests :: [TestCase]
 primitiveTests = [ (UnaryFnApp "fxadd1" (FixNum 1), "2")
                  , (UnaryFnApp "fxadd1" (FixNum $ -1), "0")
                  , (UnaryFnApp "fxadd1" (FixNum 4567), "4568")
+                 , (UnaryFnApp "fxsub1" (FixNum 4567), "4566")
+                 , (UnaryFnApp "fxsub1" (FixNum 2), "1")
+                 , (UnaryFnApp "fxsub1" (FixNum 1), "0")
                  , (UnaryFnApp "char->fixnum" (Character 'A'), "65")
                  , (UnaryFnApp "fixnum->char" (FixNum 65), "#\\A")
+                 , (UnaryFnApp "fixnum?" (FixNum 3), "#t")
+                 , (UnaryFnApp "fixnum?" (FixNum $ -3), "#t")
+                 , (UnaryFnApp "fixnum?" (FixNum 0), "#t")
+                 , (UnaryFnApp "fixnum?" (Character 'A'), "#f")
+                 , (UnaryFnApp "fixnum?" (Boolean False), "#f")
+                 , (UnaryFnApp "fixnum?" (Boolean True), "#f")
+                 , (UnaryFnApp "fixnum?" Nil, "#f")
                  ]
 
 executeTestCases :: [TestCase] -> Expectation
