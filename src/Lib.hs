@@ -52,10 +52,13 @@ emitExpr (Boolean bool) =
 emitExpr (Character c) =
   emitLiteral $ inmediateRepr c
 emitExpr Nil =
-  emitLiteral 63 -- 00111111
+  emitLiteral nilValue
 emitExpr (UnaryFnApp name arg) =
   let (Just unaryPrim) = lookup name unaryPrims
   in unaryPrim arg
+
+nilValue :: Integer
+nilValue = 63 -- 00111111
 
 emitLiteral :: Integer -> Code ()
 emitLiteral n = do
@@ -75,6 +78,9 @@ intShift = 2
 
 instance InmediateRepr Integer where
   inmediateRepr n = n `shiftL` intShift
+
+boolMask :: Integer
+boolMask = falseValue
 
 falseValue :: Integer
 falseValue = 47  -- 00101111
@@ -113,14 +119,34 @@ fixNumToChar = unaryPrim $ do
   emit $ "    sall $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the left 6 bits
   emit $ "    orl $" ++ show charTag ++ ", %eax" -- add char tag
 
-isFixnum :: Expr -> Code ()
-isFixnum = unaryPrim $ do
-  emit $ "    and $" ++ show 3 ++ ", %al"         -- extract the first 2 bits
-  emit $ "    cmp $" ++ show 0 ++ ", %al"         -- compare them with 0
+isNull :: Expr -> Code ()
+isNull = unaryPrim $ returnTrueIfEqualTo nilValue
+
+isBoolean :: Expr -> Code ()
+isBoolean = unaryPrim $ do
+  emit $ "    and $" ++ show falseValue ++ ", %al"
+  returnTrueIfEqualTo falseValue
+
+isChar :: Expr -> Code ()
+isChar = unaryPrim $ do
+    emit $ "    and $" ++ show 255 ++ ", %al"
+    returnTrueIfEqualTo $ toInteger charTag
+
+notL :: Expr -> Code ()
+notL = unaryPrim $ returnTrueIfEqualTo falseValue
+
+returnTrueIfEqualTo :: Integer -> Code ()
+returnTrueIfEqualTo n = do
+  emit $ "    cmp $" ++ show n ++ ", %al"         -- compare with n
   emit $ "    sete %al"                           -- set %al to the result of equals
   emit $ "    movzbl %al, %eax"                   -- mov %al to %eax and pad the remaining bits with 0: https://en.wikibooks.org/wiki/X86_Assembly/Data_Transfer#Move_with_zero_extend --> why is this needed?
   emit $ "    sal $6, %al"                        -- move the result bit 6 bits to the left
   emit $ "    or $" ++ show falseValue ++ ", %al" -- or with the false value to return a "boolean" in the expected format
+
+isFixnum :: Expr -> Code ()
+isFixnum = unaryPrim $ do
+  emit $ "    and $" ++ show 3 ++ ", %al"         -- extract the first 2 bits
+  returnTrueIfEqualTo 0
 
 type UnaryPrim = (String, Expr -> Code ())
 
@@ -130,4 +156,8 @@ unaryPrims = [ ("fxadd1", fxadd1)
              , ("char->fixnum", charToFixNum)
              , ("fixnum->char", fixNumToChar)
              , ("fixnum?", isFixnum)
+             , ("null?", isNull)
+             , ("not", notL)
+             , ("boolean?", isBoolean)
+             , ("char?", isChar)
              ]
