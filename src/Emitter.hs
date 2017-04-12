@@ -47,6 +47,8 @@ emitExpr Nil =
 emitExpr (UnaryFnApp name arg) =
   let (Just unaryPrim) = lookup name unaryPrims
   in unaryPrim arg
+emitExpr (If condition conseq altern) =
+  emitIf condition conseq altern 0
 
 type UnaryPrim = (String, Expr -> Code)
 
@@ -61,6 +63,7 @@ unaryPrims = [ ("fxadd1", fxadd1)
              , ("boolean?", isBoolean)
              , ("char?", isChar)
              , ("fxzero?", isFxZero)
+             , ("fxlognot", fxLognot)
              ]
 
 unaryPrim :: Code -> Expr -> Code
@@ -108,3 +111,26 @@ notL = unaryPrim $ returnTrueIfEqualTo falseValue
 
 isFxZero :: Expr -> Code
 isFxZero = unaryPrim $ returnTrueIfEqualTo 0
+
+fxLognot :: Expr -> Code
+fxLognot = unaryPrim $ do
+  emit "    not %eax"
+  emit "    sar $2, %eax"
+  emit "    sal $2, %eax"
+
+uniqueLabel :: Int -> (Int, String)
+uniqueLabel n = (n+1, "L_" ++ show n)
+
+emitIf :: Expr -> Expr -> Expr -> Int -> Code
+emitIf condition conseq altern n =
+  let (n', alternLabel) = uniqueLabel n
+      (n'', endLabel  ) = uniqueLabel n'
+  in do
+    emitExpr condition
+    emit $ "    cmp $" ++ show falseValue ++ ", %al"
+    emit $ "    je " ++ alternLabel
+    emitExpr conseq
+    emit $ "    jmp " ++ endLabel
+    emit $ alternLabel ++ ":"
+    emitExpr altern
+    emit $ endLabel ++ ":"

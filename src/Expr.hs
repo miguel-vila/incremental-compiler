@@ -5,3 +5,4 @@ data Expr = FixNum Integer
           | Character Char
           | Nil
           | UnaryFnApp String Expr
+          | If Expr Expr Expr

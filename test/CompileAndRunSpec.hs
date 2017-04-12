@@ -94,6 +94,15 @@ primitiveTests = [ (UnaryFnApp "fxadd1" (FixNum 1), "2")
                  , (UnaryFnApp "char?" (Boolean True), "#f")
                  , (UnaryFnApp "char?" (Boolean False), "#f")
                  , (UnaryFnApp "char?" (FixNum 3), "#f")
+                 , (UnaryFnApp "fxlognot" (FixNum 0), "-1")
+                 , (UnaryFnApp "fxlognot" (FixNum $ -1), "0")
+                 , (UnaryFnApp "fxlognot" (FixNum 1), "-2")
+                 , (UnaryFnApp "fxlognot" (FixNum 536870911), "-536870912")
+                 , (UnaryFnApp "fxlognot" (FixNum $ -536870912), "536870911")
+                 , (UnaryFnApp "fxlognot" (UnaryFnApp "fxlognot" (FixNum 237463)), "237463")
+                 , (If (Boolean True) (FixNum 1) (FixNum 2), "1")
+                 , (If (FixNum 0) (FixNum 1) (FixNum 2), "1")
+                 , (If (Boolean False) (FixNum 1) (FixNum 2), "2")
                  ]
 
 executeTestCases :: [TestCase] -> Expectation
@@ -105,3 +114,4 @@ compileAndRunSpec = describe "CompileAndExecute" $ do
   it "evaluates character expressions" $ executeTestCases charTests
   it "evaluates nil" $ Nil `whenRunShouldPrint` "nil"
   it "evaluates unary primitive invocations" $ executeTestCases primitiveTests
+
