@@ -87,18 +87,30 @@ fixNumToChar = unaryPrim $ do
 isNull :: Expr -> Code
 isNull = unaryPrim $ returnTrueIfEqualTo nilValue
 
+applyMask :: Integer -> Code
+applyMask mask =
+  emit $ "    and $" ++ show mask ++ ", %al"
+
 isBoolean :: Expr -> Code
 isBoolean = unaryPrim $ do
-  emit $ "    and $" ++ show falseValue ++ ", %al"
+  applyMask boolMask
   returnTrueIfEqualTo falseValue
 
 isChar :: Expr -> Code
 isChar = unaryPrim $ do
-    emit $ "    and $" ++ show 255 ++ ", %al"
+    applyMask charMask
     returnTrueIfEqualTo $ toInteger charTag
+
+isFixnum :: Expr -> Code
+isFixnum = unaryPrim $ do
+  applyMask $ toInteger intTag
+  returnTrueIfEqualTo 0
 
 notL :: Expr -> Code
 notL = unaryPrim $ returnTrueIfEqualTo falseValue
+
+isFxZero :: Expr -> Code
+isFxZero = unaryPrim $ returnTrueIfEqualTo 0
 
 returnTrueIfEqualTo :: Integer -> Code
 returnTrueIfEqualTo n = do
@@ -107,11 +119,6 @@ returnTrueIfEqualTo n = do
   emit $ "    movzbl %al, %eax"                   -- mov %al to %eax and pad the remaining bits with 0: https://en.wikibooks.org/wiki/X86_Assembly/Data_Transfer#Move_with_zero_extend --> why is this needed?
   emit $ "    sal $6, %al"                        -- move the result bit 6 bits to the left
   emit $ "    or $" ++ show falseValue ++ ", %al" -- or with the false value to return a "boolean" in the expected format
-
-isFixnum :: Expr -> Code
-isFixnum = unaryPrim $ do
-  emit $ "    and $" ++ show 3 ++ ", %al"         -- extract the first 2 bits
-  returnTrueIfEqualTo 0
 
 type UnaryPrim = (String, Expr -> Code)
 
@@ -125,4 +132,5 @@ unaryPrims = [ ("fxadd1", fxadd1)
              , ("not", notL)
              , ("boolean?", isBoolean)
              , ("char?", isChar)
+             , ("fxzero?", isFxZero)
              ]

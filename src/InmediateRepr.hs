@@ -17,4 +17,3 @@ instance InmediateRepr Bool where
 instance InmediateRepr Char where
   inmediateRepr c =
     toInteger $ ord c `shiftL` charShift .|. charTag
-
