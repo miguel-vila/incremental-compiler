@@ -103,6 +103,9 @@ primitiveTests = [ (UnaryFnApp "fxadd1" (FixNum 1), "2")
                  , (If (Boolean True) (FixNum 1) (FixNum 2), "1")
                  , (If (FixNum 0) (FixNum 1) (FixNum 2), "1")
                  , (If (Boolean False) (FixNum 1) (FixNum 2), "2")
+                 , (If (Boolean True) (If (Boolean True) (FixNum 1) (FixNum 2)) (FixNum 3), "1")
+                 , (If (Boolean True) (If (Boolean False) (FixNum 1) (FixNum 2)) (FixNum 3), "2")
+                 , (If (Boolean False) (If (Boolean False) (FixNum 1) (FixNum 2)) (FixNum 3), "3")
                  ]
 
 executeTestCases :: [TestCase] -> Expectation

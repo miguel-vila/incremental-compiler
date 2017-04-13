@@ -4,13 +4,29 @@ import Control.Monad.Writer.Lazy
 import MagicNumbers
 import Expr
 import InmediateRepr
+import Control.Monad.State.Strict
 
-type Code = Writer [String] ()
+type Code = [String]
 
-emit :: String -> Code
+type CodeGenState = Int
+
+type GenState = StateT CodeGenState (Writer Code)
+
+type CodeGen = GenState ()
+
+initialState :: CodeGenState
+initialState = 0
+
+compile :: Expr -> Code
+compile code = executeGen (wrapInFn $ emitExpr code)
+
+executeGen :: CodeGen -> Code
+executeGen codeGen = execWriter $ evalStateT codeGen initialState
+
+emit :: String -> CodeGen
 emit s = tell [s]
 
-wrapInFn :: Code -> Code
+wrapInFn :: CodeGen -> CodeGen
 wrapInFn code = do
   emit "    .text"
   emit "    .globl scheme_entry"
@@ -19,15 +35,15 @@ wrapInFn code = do
   code
   emit "    ret"
 
-emitLiteral :: Integer -> Code
+emitLiteral :: Integer -> CodeGen
 emitLiteral n = do
-    emit ("    movl $" ++ (show n) ++ ", %eax")
+    emit $ "    movl $" ++ (show n) ++ ", %eax"
 
-applyMask :: Integer -> Code
+applyMask :: Integer -> CodeGen
 applyMask mask =
   emit $ "    and $" ++ show mask ++ ", %al"
 
-returnTrueIfEqualTo :: Integer -> Code
+returnTrueIfEqualTo :: Integer -> CodeGen
 returnTrueIfEqualTo n = do
   emit $ "    cmp $" ++ show n ++ ", %al"         -- compare with n
   emit $ "    sete %al"                           -- set %al to the result of equals
@@ -35,7 +51,7 @@ returnTrueIfEqualTo n = do
   emit $ "    sal $6, %al"                        -- move the result bit 6 bits to the left
   emit $ "    or $" ++ show falseValue ++ ", %al" -- or with the false value to return a "boolean" in the expected format
 
-emitExpr :: Expr -> Code
+emitExpr :: Expr -> CodeGen
 emitExpr (FixNum n) =
   emitLiteral $ inmediateRepr n
 emitExpr (Boolean bool) =
@@ -45,12 +61,12 @@ emitExpr (Character c) =
 emitExpr Nil =
   emitLiteral nilValue
 emitExpr (UnaryFnApp name arg) =
-  let (Just unaryPrim) = lookup name unaryPrims
+  let (Just unaryPrim) = lookup name unaryPrims  -- @TODO handle this
   in unaryPrim arg
 emitExpr (If condition conseq altern) =
-  emitIf condition conseq altern 0
+  emitIf condition conseq altern
 
-type UnaryPrim = (String, Expr -> Code)
+type UnaryPrim = (String, Expr -> CodeGen)
 
 unaryPrims :: [UnaryPrim]
 unaryPrims = [ ("fxadd1", fxadd1)
@@ -66,71 +82,73 @@ unaryPrims = [ ("fxadd1", fxadd1)
              , ("fxlognot", fxLognot)
              ]
 
-unaryPrim :: Code -> Expr -> Code
+unaryPrim :: CodeGen -> Expr -> CodeGen
 unaryPrim prim arg = do
   emitExpr arg
   prim
 
-fxadd1 :: Expr -> Code
+fxadd1 :: Expr -> CodeGen
 fxadd1 = unaryPrim $
   emit $ "    addl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
 
-fxsub1 :: Expr -> Code
+fxsub1 :: Expr -> CodeGen
 fxsub1 = unaryPrim $
   emit $ "    subl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
 
-charToFixNum :: Expr -> Code
+charToFixNum :: Expr -> CodeGen
 charToFixNum = unaryPrim $
   emit $ "    sarl $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the right 6 bits (remember char tag is 00001111)
 
-fixNumToChar :: Expr -> Code
+fixNumToChar :: Expr -> CodeGen
 fixNumToChar = unaryPrim $ do
   emit $ "    sall $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the left 6 bits
   emit $ "    orl $" ++ show charTag ++ ", %eax" -- add char tag
 
-isNull :: Expr -> Code
+isNull :: Expr -> CodeGen
 isNull = unaryPrim $ returnTrueIfEqualTo nilValue
 
-isBoolean :: Expr -> Code
+isBoolean :: Expr -> CodeGen
 isBoolean = unaryPrim $ do
   applyMask boolMask
   returnTrueIfEqualTo falseValue
 
-isChar :: Expr -> Code
+isChar :: Expr -> CodeGen
 isChar = unaryPrim $ do
     applyMask charMask
     returnTrueIfEqualTo $ toInteger charTag
 
-isFixnum :: Expr -> Code
+isFixnum :: Expr -> CodeGen
 isFixnum = unaryPrim $ do
   applyMask $ toInteger intTag
   returnTrueIfEqualTo 0
 
-notL :: Expr -> Code
+notL :: Expr -> CodeGen
 notL = unaryPrim $ returnTrueIfEqualTo falseValue
 
-isFxZero :: Expr -> Code
+isFxZero :: Expr -> CodeGen
 isFxZero = unaryPrim $ returnTrueIfEqualTo 0
 
-fxLognot :: Expr -> Code
+fxLognot :: Expr -> CodeGen
 fxLognot = unaryPrim $ do
   emit "    not %eax"
   emit "    sar $2, %eax"
   emit "    sal $2, %eax"
 
-uniqueLabel :: Int -> (Int, String)
-uniqueLabel n = (n+1, "L_" ++ show n)
+uniqueLabel :: GenState String
+uniqueLabel = do
+  s <- get
+  modify (+1)
+  return $ "L_" ++ show s
 
-emitIf :: Expr -> Expr -> Expr -> Int -> Code
-emitIf condition conseq altern n =
-  let (n', alternLabel) = uniqueLabel n
-      (n'', endLabel  ) = uniqueLabel n'
-  in do
-    emitExpr condition
-    emit $ "    cmp $" ++ show falseValue ++ ", %al"
-    emit $ "    je " ++ alternLabel
-    emitExpr conseq
-    emit $ "    jmp " ++ endLabel
-    emit $ alternLabel ++ ":"
-    emitExpr altern
-    emit $ endLabel ++ ":"
+emitIf :: Expr -> Expr -> Expr -> CodeGen
+emitIf condition conseq altern = do
+  alternLabel <- uniqueLabel
+  endLabel    <- uniqueLabel
+  emitExpr condition
+  emit $ "    cmp $" ++ show falseValue ++ ", %al"
+  emit $ "    je " ++ alternLabel
+  emitExpr conseq
+  emit $ "    jmp " ++ endLabel
+  emit $ alternLabel ++ ":"
+  emitExpr altern
+  emit $ endLabel ++ ":"
