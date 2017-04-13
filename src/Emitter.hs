@@ -26,6 +26,9 @@ executeGen codeGen = execWriter $ evalStateT codeGen initialState
 emit :: String -> CodeGen
 emit s = tell [s]
 
+noop :: CodeGen
+noop = tell []
+
 wrapInFn :: CodeGen -> CodeGen
 wrapInFn code = do
   emit "    .text"
@@ -65,6 +68,12 @@ emitExpr (UnaryFnApp name arg) =
   in unaryPrim arg
 emitExpr (If condition conseq altern) =
   emitIf condition conseq altern
+emitExpr (And preds) =
+  emitAnd preds
+emitExpr (Or preds) =
+  emitOr preds
+emitExpr NoOp =
+  noop
 
 type UnaryPrim = (String, Expr -> CodeGen)
 
@@ -152,3 +161,13 @@ emitIf condition conseq altern = do
   emit $ alternLabel ++ ":"
   emitExpr altern
   emit $ endLabel ++ ":"
+
+emitAnd :: [Expr] -> CodeGen
+emitAnd []            = emitExpr (Boolean False)
+emitAnd [test]        = emitExpr test
+emitAnd (test : rest) = emitIf test (And rest) (Boolean False)
+
+emitOr :: [Expr] -> CodeGen
+emitOr []            = emitExpr (Boolean True)
+emitOr [test]        = emitExpr test
+emitOr (test : rest) = emitIf test NoOp (Or rest)

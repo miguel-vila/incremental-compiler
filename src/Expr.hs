@@ -6,3 +6,6 @@ data Expr = FixNum Integer
           | Nil
           | UnaryFnApp String Expr
           | If Expr Expr Expr
+          | And [Expr]
+          | Or [Expr]
+          | NoOp
