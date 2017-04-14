@@ -1,5 +1,6 @@
 module Lib
     ( compileAndExecute
+    , compileCode
     ) where
 
 import System.Process
@@ -11,8 +12,7 @@ import Emitter
 
 compileAndExecute :: Expr -> IO String
 compileAndExecute source = do
-  let program = compile source
-  let programText = unlines program
+  let programText = compileCode source
   writeFile "tmp-program.s" programText
   let command = "gcc -o tmp-program runtime.c tmp-program.s"
   callCommand command
@@ -21,3 +21,6 @@ compileAndExecute source = do
   output <- hGetLine handle
   mapM_ removeFile ["tmp-program.s", "tmp-program"]
   return output
+
+compileCode :: Expr -> String
+compileCode = unlines . compile
