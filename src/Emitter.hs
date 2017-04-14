@@ -65,7 +65,8 @@ emitExpr Nil =
   emitLiteral nilValue
 emitExpr (UnaryFnApp name arg) =
   let (Just unaryPrim) = lookup name unaryPrims  -- @TODO handle this
-  in unaryPrim arg
+  in do emitExpr arg
+        unaryPrim
 emitExpr (If condition conseq altern) =
   emitIf condition conseq altern
 emitExpr (And preds) =
@@ -75,9 +76,7 @@ emitExpr (Or preds) =
 emitExpr NoOp =
   noop
 
-type UnaryPrim = (String, Expr -> CodeGen)
-
-unaryPrims :: [UnaryPrim]
+unaryPrims :: [(String, CodeGen)]
 unaryPrims = [ ("fxadd1", fxadd1)
              , ("fxsub1", fxsub1)
              , ("char->fixnum", charToFixNum)
@@ -91,54 +90,49 @@ unaryPrims = [ ("fxadd1", fxadd1)
              , ("fxlognot", fxLognot)
              ]
 
-unaryPrim :: CodeGen -> Expr -> CodeGen
-unaryPrim prim arg = do
-  emitExpr arg
-  prim
-
-fxadd1 :: Expr -> CodeGen
-fxadd1 = unaryPrim $
+fxadd1 :: CodeGen
+fxadd1 =
   emit $ "    addl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
 
-fxsub1 :: Expr -> CodeGen
-fxsub1 = unaryPrim $
+fxsub1 :: CodeGen
+fxsub1 =
   emit $ "    subl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
 
-charToFixNum :: Expr -> CodeGen
-charToFixNum = unaryPrim $
+charToFixNum :: CodeGen
+charToFixNum =
   emit $ "    sarl $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the right 6 bits (remember char tag is 00001111)
 
-fixNumToChar :: Expr -> CodeGen
-fixNumToChar = unaryPrim $ do
+fixNumToChar :: CodeGen
+fixNumToChar = do
   emit $ "    sall $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the left 6 bits
   emit $ "    orl $" ++ show charTag ++ ", %eax" -- add char tag
 
-isNull :: Expr -> CodeGen
-isNull = unaryPrim $ returnTrueIfEqualTo nilValue
+isNull :: CodeGen
+isNull = returnTrueIfEqualTo nilValue
 
-isBoolean :: Expr -> CodeGen
-isBoolean = unaryPrim $ do
+isBoolean :: CodeGen
+isBoolean = do
   applyMask boolMask
   returnTrueIfEqualTo falseValue
 
-isChar :: Expr -> CodeGen
-isChar = unaryPrim $ do
+isChar :: CodeGen
+isChar = do
     applyMask charMask
     returnTrueIfEqualTo $ toInteger charTag
 
-isFixnum :: Expr -> CodeGen
-isFixnum = unaryPrim $ do
+isFixnum :: CodeGen
+isFixnum = do
   applyMask $ toInteger intTag
   returnTrueIfEqualTo 0
 
-notL :: Expr -> CodeGen
-notL = unaryPrim $ returnTrueIfEqualTo falseValue
+notL :: CodeGen
+notL = returnTrueIfEqualTo falseValue
 
-isFxZero :: Expr -> CodeGen
-isFxZero = unaryPrim $ returnTrueIfEqualTo 0
+isFxZero :: CodeGen
+isFxZero = returnTrueIfEqualTo 0
 
-fxLognot :: Expr -> CodeGen
-fxLognot = unaryPrim $ do
+fxLognot :: CodeGen
+fxLognot = do
   emit "    not %eax"
   emit "    sar $2, %eax"
   emit "    sal $2, %eax"
