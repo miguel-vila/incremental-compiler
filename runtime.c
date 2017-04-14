@@ -24,9 +24,11 @@ char* toString(int value) {
 
 int main(int argc, char** argv){
   printf("%s\n", toString(scheme_entry()));
+  /*
   printf("%s\n", toString(12));
   printf("%s\n", toString(47));
   printf("%s\n", toString(47+64));
   printf("%s\n", toString(16655));
+  */
   return 0;
 }
