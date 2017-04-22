@@ -9,3 +9,4 @@ data Expr = FixNum Integer
           | And [Expr]
           | Or [Expr]
           | NoOp
+          | BinaryFnApp String Expr Expr

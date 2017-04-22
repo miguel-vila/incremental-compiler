@@ -14,11 +14,14 @@ type GenState = StateT CodeGenState (Writer Code)
 
 type CodeGen = GenState ()
 
+wordsize :: Integer
+wordsize = 4
+
 initialState :: CodeGenState
 initialState = 0
 
 compile :: Expr -> Code
-compile = executeGen . wrapInEntryPoint . emitExpr
+compile = executeGen . wrapInEntryPoint . emitExpr (- wordsize)
 
 executeGen :: CodeGen -> Code
 executeGen codeGen = execWriter $ evalStateT codeGen initialState
@@ -29,13 +32,23 @@ emit s = tell [s]
 noop :: CodeGen
 noop = tell []
 
+emitFunctionHeader :: Label -> CodeGen
+emitFunctionHeader label = do
+  emit $ "    .globl " ++ label
+  emit $ "    .type " ++ label ++ ", @function"
+  labelStart label
+
 wrapInEntryPoint :: CodeGen -> CodeGen
 wrapInEntryPoint code = do
   emit "    .text"
-  emit "    .globl scheme_entry"
-  emit "    .type scheme_entry, @function"
-  emit "scheme_entry:"
+  emitFunctionHeader "L_scheme_entry"
   code
+  emit "    ret"
+  emitFunctionHeader "scheme_entry"
+  emit "    mov %esp, %ecx"
+  emit "    mov 4(%esp), %esp"
+  emit "    call L_scheme_entry"
+  emit "    mov %ecx, %esp"
   emit "    ret"
 
 emitLiteral :: Integer -> CodeGen
@@ -53,35 +66,45 @@ defaultPredicateCont = do
   emit $ "    sal $6, %al"                        -- move the result bit 6 bits to the left
   emit $ "    or $" ++ show falseValue ++ ", %al" -- or with the false value to return a "boolean" in the expected format
 
-emitExpr :: Expr -> CodeGen
-emitExpr (FixNum n) =
+emitExpr :: StackIndex -> Expr -> CodeGen
+emitExpr _ (FixNum n) =
   emitLiteral $ inmediateRepr n
-emitExpr (Boolean bool) =
+emitExpr _ (Boolean bool) =
   emitLiteral $ inmediateRepr bool
-emitExpr (Character c) =
+emitExpr _ (Character c) =
   emitLiteral $ inmediateRepr c
-emitExpr Nil =
+emitExpr _ Nil =
   emitLiteral nilValue
-emitExpr (UnaryFnApp name arg) =
+emitExpr si (UnaryFnApp name arg) =
   let (Just unaryPrim) = lookup name unaryPrims  -- @TODO handle this
-  in emitUnaryFn unaryPrim arg
-emitExpr (If condition conseq altern) =
-  emitIf condition conseq altern
-emitExpr (And preds) =
-  emitAnd preds
-emitExpr (Or preds) =
-  emitOr preds
-emitExpr NoOp =
+  in emitUnaryFn si unaryPrim arg
+emitExpr si (If condition conseq altern) =
+  emitIf si condition conseq altern
+emitExpr si (And preds) =
+  emitAnd si preds
+emitExpr si (Or preds) =
+  emitOr si preds
+emitExpr _ NoOp =
   noop
+emitExpr si (BinaryFnApp name arg1 arg2) =
+  let (Just binaryPrim) = lookup name binaryPrims -- @TODO handle this
+  in emitBinaryFn si arg1 arg2 binaryPrim
 
-emitUnaryFn :: UnaryFunGen -> Expr -> CodeGen
-emitUnaryFn (ReturnValueFn body) arg = do
-  emitExpr arg
+emitUnaryFn :: StackIndex -> UnaryFunGen -> Expr -> CodeGen
+emitUnaryFn si (ReturnValueFn body) arg = do
+  emitExpr si arg
   body
-emitUnaryFn (Predicate predicate) arg = do
-  emitExpr arg
+emitUnaryFn si (Predicate predicate) arg = do
+  emitExpr si arg
   predicate
   defaultPredicateCont
+
+emitBinaryFn :: StackIndex -> Expr -> Expr -> BinaryFnGen -> CodeGen
+emitBinaryFn si arg1 arg2 binaryPrim = do
+  emitExpr si arg1
+  emit $ "    movl %eax, " ++ show si ++ "(%esp)"
+  emitExpr (si - wordsize) arg2
+  binaryPrim si
 
 data UnaryFunGen = ReturnValueFn CodeGen
                  | Predicate CodeGen
@@ -99,6 +122,13 @@ unaryPrims = [ ("fxadd1"      , fxadd1)
              , ("char?"       , isChar)
              , ("fxzero?"     , isFxZero)
              ]
+
+type BinaryFnGen = StackIndex -> CodeGen
+
+binaryPrims :: [(String, BinaryFnGen)]
+binaryPrims = [ ("fx+", fxPlus)
+              , ("fx-", fxMinus)
+              ]
 
 fxadd1 :: UnaryFunGen
 fxadd1 = ReturnValueFn $
@@ -146,7 +176,7 @@ jumpTo label =
 
 labelStart :: Label -> CodeGen
 labelStart label =
-  emit $ "    " ++ label ++ ":"
+  emit $ label ++ ":"
 
 isNull :: UnaryFunGen
 isNull = Predicate $ compareTo nilValue
@@ -184,8 +214,8 @@ uniqueLabel = do
   modify (+1)
   return $ "L_" ++ show s
 
-emitIf :: Expr -> Expr -> Expr -> CodeGen
-emitIf condition conseq altern = do
+emitIf :: StackIndex -> Expr -> Expr -> Expr -> CodeGen
+emitIf si condition conseq altern = do
   alternLabel <- uniqueLabel
   endLabel    <- uniqueLabel
   let evalCondAndJumpToAlternIfFalse =
@@ -199,24 +229,34 @@ emitIf condition conseq altern = do
                 evalAndJump (Predicate predicateCode) = do
                   predicateCode
                   ifNotEqJumpTo alternLabel
-            in do emitExpr arg
+            in do emitExpr si arg
                   evalAndJump unaryPrim
-          _ -> do emitExpr condition
+          _ -> do emitExpr si condition
                   compareTo falseValue
                   ifEqJumpTo alternLabel
   evalCondAndJumpToAlternIfFalse
-  emitExpr conseq
+  emitExpr si conseq
   jumpTo endLabel
   labelStart alternLabel
-  emitExpr altern
+  emitExpr si altern
   labelStart endLabel
 
-emitAnd :: [Expr] -> CodeGen
-emitAnd []            = emitExpr (Boolean False)
-emitAnd [test]        = emitExpr test
-emitAnd (test : rest) = emitIf test (And rest) (Boolean False)
+emitAnd :: StackIndex -> [Expr] -> CodeGen
+emitAnd si []            = emitExpr si (Boolean False)
+emitAnd si [test]        = emitExpr si test
+emitAnd si (test : rest) = emitIf si test (And rest) (Boolean False)
 
-emitOr :: [Expr] -> CodeGen
-emitOr []            = emitExpr (Boolean True)
-emitOr [test]        = emitExpr test
-emitOr (test : rest) = emitIf test NoOp (Or rest)
+emitOr :: StackIndex -> [Expr] -> CodeGen
+emitOr si []            = emitExpr si (Boolean True)
+emitOr si [test]        = emitExpr si test
+emitOr si (test : rest) = emitIf si test NoOp (Or rest)
+
+type StackIndex = Integer
+
+fxPlus :: StackIndex -> CodeGen
+fxPlus si =
+  emit $ "    addl " ++ show si ++ "(%esp), %eax"
+
+fxMinus :: StackIndex -> CodeGen
+fxMinus si =
+  emit $ "    subl " ++ show si ++ "(%esp), %eax"
