@@ -45,10 +45,10 @@ wrapInEntryPoint code = do
   code
   emit "    ret"
   emitFunctionHeader "scheme_entry"
-  emit "    mov %esp, %ecx"
-  emit "    mov 4(%esp), %esp"
+  emit "    mov %esp, %ecx"      -- save C's stack pointer
+  emit "    mov 4(%esp), %esp"   -- load stack pointer from parameter
   emit "    call L_scheme_entry"
-  emit "    mov %ecx, %esp"
+  emit "    mov %ecx, %esp"      -- restore C's stack pointer
   emit "    ret"
 
 emitLiteral :: Integer -> CodeGen
@@ -59,12 +59,15 @@ applyMask :: Integer -> CodeGen
 applyMask mask =
   emit $ "    and $" ++ show mask ++ ", %al"
 
-defaultPredicateCont :: CodeGen
-defaultPredicateCont = do
-  emit $ "    sete %al"                           -- set %al to the result of equals
+emitBooleanByComparison :: ComparisonType -> CodeGen
+emitBooleanByComparison cmp = do
+  emit $ "    " ++ comparisonToSet cmp ++ " %al"  -- set %al to the result of equals
   emit $ "    movzbl %al, %eax"                   -- mov %al to %eax and pad the remaining bits with 0: https://en.wikibooks.org/wiki/X86_Assembly/Data_Transfer#Move_with_zero_extend --> why is this needed?
   emit $ "    sal $6, %al"                        -- move the result bit 6 bits to the left
   emit $ "    or $" ++ show falseValue ++ ", %al" -- or with the false value to return a "boolean" in the expected format
+
+defaultPredicateCont :: CodeGen
+defaultPredicateCont = emitBooleanByComparison Eq
 
 emitExpr :: StackIndex -> Expr -> CodeGen
 emitExpr _ (FixNum n) =
@@ -99,12 +102,20 @@ emitUnaryFn si (Predicate predicate) arg = do
   predicate
   defaultPredicateCont
 
-emitBinaryFn :: StackIndex -> Expr -> Expr -> BinaryFnGen -> CodeGen
-emitBinaryFn si arg1 arg2 binaryPrim = do
+emitTwoArgs :: StackIndex -> Expr -> Expr -> CodeGen
+emitTwoArgs si arg1 arg2 = do
   emitExpr si arg1
   emit $ "    movl %eax, " ++ show si ++ "(%esp)"
   emitExpr (si - wordsize) arg2
-  binaryPrim si
+
+emitBinaryFn :: StackIndex -> Expr -> Expr -> BinaryFnGen -> CodeGen
+emitBinaryFn si arg1 arg2 binaryPrim = do
+  emitTwoArgs si arg1 arg2
+  case binaryPrim of
+    ReturnValueBiFn fn -> fn si
+    Comparison compareType compareBody -> do
+      compareBody si
+      emitBooleanByComparison compareType
 
 data UnaryFunGen = ReturnValueFn CodeGen
                  | Predicate CodeGen
@@ -123,11 +134,19 @@ unaryPrims = [ ("fxadd1"      , fxadd1)
              , ("fxzero?"     , isFxZero)
              ]
 
-type BinaryFnGen = StackIndex -> CodeGen
+data BinaryFnGen = ReturnValueBiFn (StackIndex -> CodeGen)
+                 | Comparison ComparisonType (StackIndex -> CodeGen)
 
 binaryPrims :: [(String, BinaryFnGen)]
 binaryPrims = [ ("fx+", fxPlus)
               , ("fx-", fxMinus)
+              , ("fxlogand", fxLogAnd)
+              , ("fxlogor", fxLogOr)
+              , ("fx=", fxEq)
+              , ("fx<", fxLess)
+              , ("fx<=", fxLessOrEq)
+              , ("fx>", fxGreater)
+              , ("fx>=", fxGreaterOrEq)
               ]
 
 fxadd1 :: UnaryFunGen
@@ -151,16 +170,40 @@ compareTo :: Integer -> CodeGen
 compareTo n =
   emit $ "    cmp $" ++ show n ++ ", %al"
 
-data Comparison = Eq
-                | NotEq
+data ComparisonType = Eq
+                    | Less
+                    | LessOrEq
+                    | Greater
+                    | GreaterOrEq
+                    | NotEq
+
+opposing :: ComparisonType -> ComparisonType
+opposing Eq          = NotEq
+opposing Less        = GreaterOrEq
+opposing LessOrEq    = Greater
+opposing Greater     = LessOrEq
+opposing GreaterOrEq = Less
+opposing NotEq       = Eq
 
 type Label = String
 
-comparisonToJump :: Comparison -> String
-comparisonToJump Eq    = "je"
-comparisonToJump NotEq = "jne"
+comparisonToJump :: ComparisonType -> String
+comparisonToJump Eq          = "je"
+comparisonToJump Less        = "jl"
+comparisonToJump LessOrEq    = "jle"
+comparisonToJump Greater     = "jg"
+comparisonToJump GreaterOrEq = "jge"
+comparisonToJump NotEq       = "jne"
 
-ifComparisonJumpTo :: Comparison -> Label -> CodeGen
+comparisonToSet :: ComparisonType -> String
+comparisonToSet Eq          = "sete"
+comparisonToSet Less        = "setl"
+comparisonToSet LessOrEq    = "setle"
+comparisonToSet Greater     = "setg"
+comparisonToSet GreaterOrEq = "setge"
+comparisonToSet NotEq       = "setne"
+
+ifComparisonJumpTo :: ComparisonType -> Label -> CodeGen
 ifComparisonJumpTo cmp label =
   emit $ "    " ++ comparisonToJump cmp ++" " ++ label
 
@@ -218,19 +261,29 @@ emitIf :: StackIndex -> Expr -> Expr -> Expr -> CodeGen
 emitIf si condition conseq altern = do
   alternLabel <- uniqueLabel
   endLabel    <- uniqueLabel
+  let emitIfFor :: CodeGen -> CodeGen
+      emitIfFor code = do
+        code
+        compareTo falseValue
+        ifEqJumpTo alternLabel
   let evalCondAndJumpToAlternIfFalse =
         case condition of
           UnaryFnApp fnName arg ->
             let (Just unaryPrim) = lookup fnName unaryPrims  -- @TODO handle this
-                evalAndJump (ReturnValueFn fnCode) = do
-                  fnCode
-                  compareTo falseValue
-                  ifEqJumpTo alternLabel
-                evalAndJump (Predicate predicateCode) = do
+                emitAndJump (ReturnValueFn fnCode)    = emitIfFor fnCode
+                emitAndJump (Predicate predicateCode) = do
                   predicateCode
                   ifNotEqJumpTo alternLabel
             in do emitExpr si arg
-                  evalAndJump unaryPrim
+                  emitAndJump unaryPrim
+          BinaryFnApp fnName arg1 arg2 ->
+            let (Just binaryPrim) = lookup fnName binaryPrims -- @TODO handle this
+                emitAndJump (ReturnValueBiFn fnCode) = emitIfFor (fnCode si)
+                emitAndJump (Comparison cmp fnCode)  = do
+                  fnCode si
+                  ifComparisonJumpTo (opposing cmp) alternLabel
+            in do emitTwoArgs si arg1 arg2
+                  emitAndJump binaryPrim
           _ -> do emitExpr si condition
                   compareTo falseValue
                   ifEqJumpTo alternLabel
@@ -253,10 +306,48 @@ emitOr si (test : rest) = emitIf si test NoOp (Or rest)
 
 type StackIndex = Integer
 
-fxPlus :: StackIndex -> CodeGen
-fxPlus si =
-  emit $ "    addl " ++ show si ++ "(%esp), %eax"
+stackValueAt :: StackIndex -> String
+stackValueAt si = show si ++ "(%esp)"
 
-fxMinus :: StackIndex -> CodeGen
-fxMinus si =
-  emit $ "    subl " ++ show si ++ "(%esp), %eax"
+fxPlus :: BinaryFnGen
+fxPlus = ReturnValueBiFn $ \si ->
+  emit $ "    addl " ++ stackValueAt si ++ ", %eax"
+
+emitStackLoad :: StackIndex -> CodeGen
+emitStackLoad si =
+  emit $ "    mov " ++ stackValueAt si ++ ", %eax"
+
+fxMinus :: BinaryFnGen
+fxMinus = ReturnValueBiFn $ \si -> do
+  emit $ "    subl %eax, " ++ stackValueAt si
+  emitStackLoad si
+
+fxLogAnd :: BinaryFnGen
+fxLogAnd = ReturnValueBiFn $ \si ->
+  emit $ "    and " ++ stackValueAt si ++ ", %eax"
+
+fxLogOr :: BinaryFnGen
+fxLogOr = ReturnValueBiFn $ \si ->
+  emit $ "    or " ++ stackValueAt si ++ ", %eax"
+
+compareEaxToStackValue :: StackIndex -> CodeGen
+compareEaxToStackValue si =
+  emit $ "    cmp %eax, " ++ stackValueAt si
+
+fxComparison :: ComparisonType -> BinaryFnGen
+fxComparison cmp = Comparison cmp compareEaxToStackValue
+
+fxEq :: BinaryFnGen
+fxEq = fxComparison Eq
+
+fxLess :: BinaryFnGen
+fxLess = fxComparison Less
+
+fxLessOrEq :: BinaryFnGen
+fxLessOrEq = fxComparison LessOrEq
+
+fxGreater :: BinaryFnGen
+fxGreater = fxComparison Greater
+
+fxGreaterOrEq :: BinaryFnGen
+fxGreaterOrEq = fxComparison GreaterOrEq
