@@ -100,8 +100,8 @@ emitFnApp :: StackIndex -> FnGen -> [Expr] -> CodeGen
 emitFnApp si fnGen args = do
   emitArgs si args -- @TODO check # of args
   case fnGen of
-    ReturnValueFn body ->
-      body si
+    SimpleFn codeGen ->
+      codeGen si
     Predicate predicate -> do
       predicate
       ifEqReturnTrue
@@ -109,19 +109,18 @@ emitFnApp si fnGen args = do
       compareBody si
       emitBooleanByComparison compareType
 
-emitTwoArgs :: StackIndex -> Expr -> Expr -> CodeGen
-emitTwoArgs si arg1 arg2 = do
-  emitExpr si arg1
-  emit $ "movl %eax, " ++ show si ++ "(%esp)"
-  emitExpr (si - wordsize) arg2
-
 emitArgs :: StackIndex -> [Expr] -> CodeGen
---emitArgs si []           = _ -- @TODO
-emitArgs si [arg]        = emitExpr si arg
-emitArgs si [arg1, arg2] = emitTwoArgs si arg1 arg2
---emitArgs si args         = _ -- @TODO
+emitArgs si args = loop si args noop
+  where loop si' [arg]           gen =
+          do gen
+             emitExpr si' arg
+        loop si' (argh:argsTail) gen =
+          let gen' = do gen
+                        emitExpr si' argh
+                        emit $ "movl %eax, " ++ stackValueAt si'
+          in loop (si' - wordsize) argsTail gen'
 
-data FnGen = ReturnValueFn (StackIndex -> CodeGen)
+data FnGen = SimpleFn (StackIndex -> CodeGen)
            | Predicate CodeGen
            | Comparison ComparisonType (StackIndex -> CodeGen)
 
@@ -155,19 +154,19 @@ binaryPrims = [ ("fx+"      , fxPlus)
               ]
 
 fxadd1 :: FnGen
-fxadd1 = ReturnValueFn $ const $
+fxadd1 = SimpleFn $ const $
   emit $ "addl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
 
 fxsub1 :: FnGen
-fxsub1 = ReturnValueFn $ const $
+fxsub1 = SimpleFn $ const $
   emit $ "subl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
 
 charToFixNum :: FnGen
-charToFixNum = ReturnValueFn $ const $
+charToFixNum = SimpleFn $ const $
   emit $ "sarl $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the right 6 bits (remember char tag is 00001111)
 
 fixNumToChar :: FnGen
-fixNumToChar = ReturnValueFn $ const $ do
+fixNumToChar = SimpleFn $ const $ do
   emit $ "sall $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the left 6 bits
   emit $ "orl $" ++ show charTag ++ ", %eax" -- add char tag
 
@@ -251,7 +250,7 @@ isFxZero :: FnGen
 isFxZero = Predicate $ compareTo 0
 
 fxLogNot :: FnGen
-fxLogNot = ReturnValueFn $ const $ do
+fxLogNot = SimpleFn $ const $ do
   emit "not %eax"
   emit "sar $2, %eax"
   emit "sal $2, %eax"
@@ -275,7 +274,7 @@ emitIf si condition conseq altern = do
         case condition of
           FnApp fnName args ->
             let (Just primitive) = lookup fnName primitives  -- @TODO handle this
-                emitAndJump (ReturnValueFn fnCode)    = emitIfFor $ fnCode si
+                emitAndJump (SimpleFn fnCode)    = emitIfFor $ fnCode si
                 emitAndJump (Predicate predicateCode) = do
                   predicateCode
                   ifNotEqJumpTo alternLabel
@@ -310,7 +309,7 @@ stackValueAt :: StackIndex -> String
 stackValueAt si = show si ++ "(%esp)"
 
 fxPlus :: FnGen
-fxPlus = ReturnValueFn $ \si ->
+fxPlus = SimpleFn $ \si ->
   emit $ "addl " ++ stackValueAt si ++ ", %eax"
 
 emitStackLoad :: StackIndex -> CodeGen
@@ -318,16 +317,16 @@ emitStackLoad si =
   emit $ "mov " ++ stackValueAt si ++ ", %eax"
 
 fxMinus :: FnGen
-fxMinus = ReturnValueFn $ \si -> do
+fxMinus = SimpleFn $ \si -> do
   emit $ "subl %eax, " ++ stackValueAt si
   emitStackLoad si
 
 fxLogAnd :: FnGen
-fxLogAnd = ReturnValueFn $ \si ->
+fxLogAnd = SimpleFn $ \si ->
   emit $ "and " ++ stackValueAt si ++ ", %eax"
 
 fxLogOr :: FnGen
-fxLogOr = ReturnValueFn $ \si ->
+fxLogOr = SimpleFn $ \si ->
   emit $ "or " ++ stackValueAt si ++ ", %eax"
 
 compareEaxToStackValue :: StackIndex -> CodeGen
