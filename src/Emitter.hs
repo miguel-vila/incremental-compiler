@@ -67,13 +67,13 @@ applyMask mask =
 
 emitBooleanByComparison :: ComparisonType -> CodeGen
 emitBooleanByComparison cmp = do
-  emit $ comparisonToSet cmp ++ " %al"  -- set %al to the result of equals
+  emit $ comparisonToSet cmp ++ " %al"  -- set %al to the result of the comparison
   emit $ "movzbl %al, %eax"                   -- mov %al to %eax and pad the remaining bits with 0: https://en.wikibooks.org/wiki/X86_Assembly/Data_Transfer#Move_with_zero_extend --> why is this needed?
   emit $ "sal $6, %al"                        -- move the result bit 6 bits to the left
   emit $ "or $" ++ show falseValue ++ ", %al" -- or with the false value to return a "boolean" in the expected format
 
-defaultPredicateCont :: CodeGen
-defaultPredicateCont = emitBooleanByComparison Eq
+ifEqReturnTrue :: CodeGen
+ifEqReturnTrue = emitBooleanByComparison Eq
 
 emitExpr :: StackIndex -> Expr -> CodeGen
 emitExpr _ (FixNum n) =
@@ -84,9 +84,9 @@ emitExpr _ (Character c) =
   emitLiteral $ inmediateRepr c
 emitExpr _ Nil =
   emitLiteral nilValue
-emitExpr si (UnaryFnApp name arg) =
-  let (Just unaryPrim) = lookup name unaryPrims  -- @TODO handle this
-  in emitUnaryFn si unaryPrim arg
+emitExpr si (FnApp name args) =
+  let (Just primitive) = lookup name primitives  -- @TODO handle this
+  in emitFnApp si primitive args
 emitExpr si (If condition conseq altern) =
   emitIf si condition conseq altern
 emitExpr si (And preds) =
@@ -95,18 +95,19 @@ emitExpr si (Or preds) =
   emitOr si preds
 emitExpr _ NoOp =
   noop
-emitExpr si (BinaryFnApp name arg1 arg2) =
-  let (Just binaryPrim) = lookup name binaryPrims -- @TODO handle this
-  in emitBinaryFn si arg1 arg2 binaryPrim
 
-emitUnaryFn :: StackIndex -> UnaryFunGen -> Expr -> CodeGen
-emitUnaryFn si (ReturnValueFn body) arg = do
-  emitExpr si arg
-  body
-emitUnaryFn si (Predicate predicate) arg = do
-  emitExpr si arg
-  predicate
-  defaultPredicateCont
+emitFnApp :: StackIndex -> FnGen -> [Expr] -> CodeGen
+emitFnApp si fnGen args = do
+  emitArgs si args -- @TODO check # of args
+  case fnGen of
+    ReturnValueFn body ->
+      body si
+    Predicate predicate -> do
+      predicate
+      ifEqReturnTrue
+    Comparison compareType compareBody -> do
+      compareBody si
+      emitBooleanByComparison compareType
 
 emitTwoArgs :: StackIndex -> Expr -> Expr -> CodeGen
 emitTwoArgs si arg1 arg2 = do
@@ -114,24 +115,25 @@ emitTwoArgs si arg1 arg2 = do
   emit $ "movl %eax, " ++ show si ++ "(%esp)"
   emitExpr (si - wordsize) arg2
 
-emitBinaryFn :: StackIndex -> Expr -> Expr -> BinaryFnGen -> CodeGen
-emitBinaryFn si arg1 arg2 binaryPrim = do
-  emitTwoArgs si arg1 arg2
-  case binaryPrim of
-    ReturnValueBiFn fn -> fn si
-    Comparison compareType compareBody -> do
-      compareBody si
-      emitBooleanByComparison compareType
+emitArgs :: StackIndex -> [Expr] -> CodeGen
+--emitArgs si []           = _ -- @TODO
+emitArgs si [arg]        = emitExpr si arg
+emitArgs si [arg1, arg2] = emitTwoArgs si arg1 arg2
+--emitArgs si args         = _ -- @TODO
 
-data UnaryFunGen = ReturnValueFn CodeGen
-                 | Predicate CodeGen
+data FnGen = ReturnValueFn (StackIndex -> CodeGen)
+           | Predicate CodeGen
+           | Comparison ComparisonType (StackIndex -> CodeGen)
 
-unaryPrims :: [(String, UnaryFunGen)]
+primitives :: [(String, FnGen)]
+primitives = unaryPrims ++ binaryPrims
+
+unaryPrims :: [(String, FnGen)]
 unaryPrims = [ ("fxadd1"      , fxadd1)
              , ("fxsub1"      , fxsub1)
              , ("char->fixnum", charToFixNum)
              , ("fixnum->char", fixNumToChar)
-             , ("fxlognot"    , fxLognot)
+             , ("fxlognot"    , fxLogNot)
              , ("fixnum?"     , isFixnum)
              , ("null?"       , isNull)
              , ("not"         , notL)
@@ -140,35 +142,32 @@ unaryPrims = [ ("fxadd1"      , fxadd1)
              , ("fxzero?"     , isFxZero)
              ]
 
-data BinaryFnGen = ReturnValueBiFn (StackIndex -> CodeGen)
-                 | Comparison ComparisonType (StackIndex -> CodeGen)
-
-binaryPrims :: [(String, BinaryFnGen)]
-binaryPrims = [ ("fx+", fxPlus)
-              , ("fx-", fxMinus)
-              , ("fxlogand", fxLogAnd)
-              , ("fxlogor", fxLogOr)
-              , ("fx=", fxEq)
-              , ("fx<", fxLess)
-              , ("fx<=", fxLessOrEq)
-              , ("fx>", fxGreater)
-              , ("fx>=", fxGreaterOrEq)
+binaryPrims :: [(String, FnGen)]
+binaryPrims = [ ("fx+"      , fxPlus)
+              , ("fx-"      , fxMinus)
+              , ("fxlogand" , fxLogAnd)
+              , ("fxlogor"  , fxLogOr)
+              , ("fx="      , fxEq)
+              , ("fx<"      , fxLess)
+              , ("fx<="     , fxLessOrEq)
+              , ("fx>"      , fxGreater)
+              , ("fx>="     , fxGreaterOrEq)
               ]
 
-fxadd1 :: UnaryFunGen
-fxadd1 = ReturnValueFn $
+fxadd1 :: FnGen
+fxadd1 = ReturnValueFn $ const $
   emit $ "addl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
 
-fxsub1 :: UnaryFunGen
-fxsub1 = ReturnValueFn $
+fxsub1 :: FnGen
+fxsub1 = ReturnValueFn $ const $
   emit $ "subl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
 
-charToFixNum :: UnaryFunGen
-charToFixNum = ReturnValueFn $
+charToFixNum :: FnGen
+charToFixNum = ReturnValueFn $ const $
   emit $ "sarl $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the right 6 bits (remember char tag is 00001111)
 
-fixNumToChar :: UnaryFunGen
-fixNumToChar = ReturnValueFn $ do
+fixNumToChar :: FnGen
+fixNumToChar = ReturnValueFn $ const $ do
   emit $ "sall $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the left 6 bits
   emit $ "orl $" ++ show charTag ++ ", %eax" -- add char tag
 
@@ -227,32 +226,32 @@ emitLabel :: Label -> CodeGen
 emitLabel label =
   emitNoTab $ label ++ ":"
 
-isNull :: UnaryFunGen
+isNull :: FnGen
 isNull = Predicate $ compareTo nilValue
 
-isBoolean :: UnaryFunGen
+isBoolean :: FnGen
 isBoolean = Predicate $ do
   applyMask boolMask
   compareTo falseValue
 
-isChar :: UnaryFunGen
+isChar :: FnGen
 isChar = Predicate $ do
     applyMask charMask
     compareTo $ toInteger charTag
 
-isFixnum :: UnaryFunGen
+isFixnum :: FnGen
 isFixnum = Predicate $ do
   applyMask $ toInteger intTag
   compareTo 0
 
-notL :: UnaryFunGen
+notL :: FnGen
 notL = Predicate $ compareTo falseValue
 
-isFxZero :: UnaryFunGen
+isFxZero :: FnGen
 isFxZero = Predicate $ compareTo 0
 
-fxLognot :: UnaryFunGen
-fxLognot = ReturnValueFn $ do
+fxLogNot :: FnGen
+fxLogNot = ReturnValueFn $ const $ do
   emit "not %eax"
   emit "sar $2, %eax"
   emit "sal $2, %eax"
@@ -274,22 +273,17 @@ emitIf si condition conseq altern = do
         ifEqJumpTo alternLabel
   let evalCondAndJumpToAlternIfFalse =
         case condition of
-          UnaryFnApp fnName arg ->
-            let (Just unaryPrim) = lookup fnName unaryPrims  -- @TODO handle this
-                emitAndJump (ReturnValueFn fnCode)    = emitIfFor fnCode
+          FnApp fnName args ->
+            let (Just primitive) = lookup fnName primitives  -- @TODO handle this
+                emitAndJump (ReturnValueFn fnCode)    = emitIfFor $ fnCode si
                 emitAndJump (Predicate predicateCode) = do
                   predicateCode
                   ifNotEqJumpTo alternLabel
-            in do emitExpr si arg
-                  emitAndJump unaryPrim
-          BinaryFnApp fnName arg1 arg2 ->
-            let (Just binaryPrim) = lookup fnName binaryPrims -- @TODO handle this
-                emitAndJump (ReturnValueBiFn fnCode) = emitIfFor (fnCode si)
                 emitAndJump (Comparison cmp fnCode)  = do
                   fnCode si
                   ifComparisonJumpTo (opposing cmp) alternLabel
-            in do emitTwoArgs si arg1 arg2
-                  emitAndJump binaryPrim
+            in do emitArgs si args
+                  emitAndJump primitive
           _ -> do emitExpr si condition
                   compareTo falseValue
                   ifEqJumpTo alternLabel
@@ -315,45 +309,45 @@ type StackIndex = Integer
 stackValueAt :: StackIndex -> String
 stackValueAt si = show si ++ "(%esp)"
 
-fxPlus :: BinaryFnGen
-fxPlus = ReturnValueBiFn $ \si ->
+fxPlus :: FnGen
+fxPlus = ReturnValueFn $ \si ->
   emit $ "addl " ++ stackValueAt si ++ ", %eax"
 
 emitStackLoad :: StackIndex -> CodeGen
 emitStackLoad si =
   emit $ "mov " ++ stackValueAt si ++ ", %eax"
 
-fxMinus :: BinaryFnGen
-fxMinus = ReturnValueBiFn $ \si -> do
+fxMinus :: FnGen
+fxMinus = ReturnValueFn $ \si -> do
   emit $ "subl %eax, " ++ stackValueAt si
   emitStackLoad si
 
-fxLogAnd :: BinaryFnGen
-fxLogAnd = ReturnValueBiFn $ \si ->
+fxLogAnd :: FnGen
+fxLogAnd = ReturnValueFn $ \si ->
   emit $ "and " ++ stackValueAt si ++ ", %eax"
 
-fxLogOr :: BinaryFnGen
-fxLogOr = ReturnValueBiFn $ \si ->
+fxLogOr :: FnGen
+fxLogOr = ReturnValueFn $ \si ->
   emit $ "or " ++ stackValueAt si ++ ", %eax"
 
 compareEaxToStackValue :: StackIndex -> CodeGen
 compareEaxToStackValue si =
   emit $ "cmp %eax, " ++ stackValueAt si
 
-fxComparison :: ComparisonType -> BinaryFnGen
+fxComparison :: ComparisonType -> FnGen
 fxComparison cmp = Comparison cmp compareEaxToStackValue
 
-fxEq :: BinaryFnGen
+fxEq :: FnGen
 fxEq = fxComparison Eq
 
-fxLess :: BinaryFnGen
+fxLess :: FnGen
 fxLess = fxComparison Less
 
-fxLessOrEq :: BinaryFnGen
+fxLessOrEq :: FnGen
 fxLessOrEq = fxComparison LessOrEq
 
-fxGreater :: BinaryFnGen
+fxGreater :: FnGen
 fxGreater = fxComparison Greater
 
-fxGreaterOrEq :: BinaryFnGen
+fxGreaterOrEq :: FnGen
 fxGreaterOrEq = fxComparison GreaterOrEq
