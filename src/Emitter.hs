@@ -26,45 +26,51 @@ compile = executeGen . wrapInEntryPoint . emitExpr (- wordsize)
 executeGen :: CodeGen -> Code
 executeGen codeGen = execWriter $ evalStateT codeGen initialState
 
+tab :: String
+tab = "    "
+
 emit :: String -> CodeGen
-emit s = tell [s]
+emit s = tell [ tab ++ s]
+
+emitNoTab :: String -> CodeGen
+emitNoTab s = tell [s]
 
 noop :: CodeGen
 noop = tell []
 
 emitFunctionHeader :: Label -> CodeGen
 emitFunctionHeader label = do
-  emit $ "    .globl " ++ label
-  emit $ "    .type " ++ label ++ ", @function"
-  labelStart label
+  emit $ ".globl " ++ label
+  emit $ ".type " ++ label ++ ", @function"
+  emitLabel label
 
 wrapInEntryPoint :: CodeGen -> CodeGen
 wrapInEntryPoint code = do
-  emit "    .text"
+  emit ".text"
   emitFunctionHeader "L_scheme_entry"
   code
-  emit "    ret"
+  emit "ret"
   emitFunctionHeader "scheme_entry"
-  emit "    mov %esp, %ecx"      -- save C's stack pointer
-  emit "    mov 4(%esp), %esp"   -- load stack pointer from parameter
-  emit "    call L_scheme_entry"
-  emit "    mov %ecx, %esp"      -- restore C's stack pointer
-  emit "    ret"
+  emit "mov %esp, %ecx"      -- save C's stack pointer
+  emit "mov 4(%esp), %esp"   -- load stack pointer from parameter
+  emit "call L_scheme_entry"
+  emit "mov %ecx, %esp"      -- restore C's stack pointer
+  emit "ret"
 
 emitLiteral :: Integer -> CodeGen
 emitLiteral n = do
-  emit $ "    movl $" ++ show n ++ ", %eax"
+  emit $ "movl $" ++ show n ++ ", %eax"
 
 applyMask :: Integer -> CodeGen
 applyMask mask =
-  emit $ "    and $" ++ show mask ++ ", %al"
+  emit $ "and $" ++ show mask ++ ", %al"
 
 emitBooleanByComparison :: ComparisonType -> CodeGen
 emitBooleanByComparison cmp = do
-  emit $ "    " ++ comparisonToSet cmp ++ " %al"  -- set %al to the result of equals
-  emit $ "    movzbl %al, %eax"                   -- mov %al to %eax and pad the remaining bits with 0: https://en.wikibooks.org/wiki/X86_Assembly/Data_Transfer#Move_with_zero_extend --> why is this needed?
-  emit $ "    sal $6, %al"                        -- move the result bit 6 bits to the left
-  emit $ "    or $" ++ show falseValue ++ ", %al" -- or with the false value to return a "boolean" in the expected format
+  emit $ comparisonToSet cmp ++ " %al"  -- set %al to the result of equals
+  emit $ "movzbl %al, %eax"                   -- mov %al to %eax and pad the remaining bits with 0: https://en.wikibooks.org/wiki/X86_Assembly/Data_Transfer#Move_with_zero_extend --> why is this needed?
+  emit $ "sal $6, %al"                        -- move the result bit 6 bits to the left
+  emit $ "or $" ++ show falseValue ++ ", %al" -- or with the false value to return a "boolean" in the expected format
 
 defaultPredicateCont :: CodeGen
 defaultPredicateCont = emitBooleanByComparison Eq
@@ -105,7 +111,7 @@ emitUnaryFn si (Predicate predicate) arg = do
 emitTwoArgs :: StackIndex -> Expr -> Expr -> CodeGen
 emitTwoArgs si arg1 arg2 = do
   emitExpr si arg1
-  emit $ "    movl %eax, " ++ show si ++ "(%esp)"
+  emit $ "movl %eax, " ++ show si ++ "(%esp)"
   emitExpr (si - wordsize) arg2
 
 emitBinaryFn :: StackIndex -> Expr -> Expr -> BinaryFnGen -> CodeGen
@@ -151,24 +157,24 @@ binaryPrims = [ ("fx+", fxPlus)
 
 fxadd1 :: UnaryFunGen
 fxadd1 = ReturnValueFn $
-  emit $ "    addl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
+  emit $ "addl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
 
 fxsub1 :: UnaryFunGen
 fxsub1 = ReturnValueFn $
-  emit $ "    subl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
+  emit $ "subl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
 
 charToFixNum :: UnaryFunGen
 charToFixNum = ReturnValueFn $
-  emit $ "    sarl $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the right 6 bits (remember char tag is 00001111)
+  emit $ "sarl $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the right 6 bits (remember char tag is 00001111)
 
 fixNumToChar :: UnaryFunGen
 fixNumToChar = ReturnValueFn $ do
-  emit $ "    sall $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the left 6 bits
-  emit $ "    orl $" ++ show charTag ++ ", %eax" -- add char tag
+  emit $ "sall $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the left 6 bits
+  emit $ "orl $" ++ show charTag ++ ", %eax" -- add char tag
 
 compareTo :: Integer -> CodeGen
 compareTo n =
-  emit $ "    cmp $" ++ show n ++ ", %al"
+  emit $ "cmp $" ++ show n ++ ", %al"
 
 data ComparisonType = Eq
                     | Less
@@ -205,7 +211,7 @@ comparisonToSet NotEq       = "setne"
 
 ifComparisonJumpTo :: ComparisonType -> Label -> CodeGen
 ifComparisonJumpTo cmp label =
-  emit $ "    " ++ comparisonToJump cmp ++" " ++ label
+  emit $ comparisonToJump cmp ++" " ++ label
 
 ifEqJumpTo :: Label -> CodeGen
 ifEqJumpTo = ifComparisonJumpTo Eq
@@ -215,11 +221,11 @@ ifNotEqJumpTo = ifComparisonJumpTo NotEq
 
 jumpTo :: Label -> CodeGen
 jumpTo label =
-  emit $ "    jmp " ++ label
+  emit $ "jmp " ++ label
 
-labelStart :: Label -> CodeGen
-labelStart label =
-  emit $ label ++ ":"
+emitLabel :: Label -> CodeGen
+emitLabel label =
+  emitNoTab $ label ++ ":"
 
 isNull :: UnaryFunGen
 isNull = Predicate $ compareTo nilValue
@@ -247,9 +253,9 @@ isFxZero = Predicate $ compareTo 0
 
 fxLognot :: UnaryFunGen
 fxLognot = ReturnValueFn $ do
-  emit "    not %eax"
-  emit "    sar $2, %eax"
-  emit "    sal $2, %eax"
+  emit "not %eax"
+  emit "sar $2, %eax"
+  emit "sal $2, %eax"
 
 uniqueLabel :: GenState Label
 uniqueLabel = do
@@ -290,9 +296,9 @@ emitIf si condition conseq altern = do
   evalCondAndJumpToAlternIfFalse
   emitExpr si conseq
   jumpTo endLabel
-  labelStart alternLabel
+  emitLabel alternLabel
   emitExpr si altern
-  labelStart endLabel
+  emitLabel endLabel
 
 emitAnd :: StackIndex -> [Expr] -> CodeGen
 emitAnd si []            = emitExpr si (Boolean False)
@@ -311,28 +317,28 @@ stackValueAt si = show si ++ "(%esp)"
 
 fxPlus :: BinaryFnGen
 fxPlus = ReturnValueBiFn $ \si ->
-  emit $ "    addl " ++ stackValueAt si ++ ", %eax"
+  emit $ "addl " ++ stackValueAt si ++ ", %eax"
 
 emitStackLoad :: StackIndex -> CodeGen
 emitStackLoad si =
-  emit $ "    mov " ++ stackValueAt si ++ ", %eax"
+  emit $ "mov " ++ stackValueAt si ++ ", %eax"
 
 fxMinus :: BinaryFnGen
 fxMinus = ReturnValueBiFn $ \si -> do
-  emit $ "    subl %eax, " ++ stackValueAt si
+  emit $ "subl %eax, " ++ stackValueAt si
   emitStackLoad si
 
 fxLogAnd :: BinaryFnGen
 fxLogAnd = ReturnValueBiFn $ \si ->
-  emit $ "    and " ++ stackValueAt si ++ ", %eax"
+  emit $ "and " ++ stackValueAt si ++ ", %eax"
 
 fxLogOr :: BinaryFnGen
 fxLogOr = ReturnValueBiFn $ \si ->
-  emit $ "    or " ++ stackValueAt si ++ ", %eax"
+  emit $ "or " ++ stackValueAt si ++ ", %eax"
 
 compareEaxToStackValue :: StackIndex -> CodeGen
 compareEaxToStackValue si =
-  emit $ "    cmp %eax, " ++ stackValueAt si
+  emit $ "cmp %eax, " ++ stackValueAt si
 
 fxComparison :: ComparisonType -> BinaryFnGen
 fxComparison cmp = Comparison cmp compareEaxToStackValue
