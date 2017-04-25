@@ -122,31 +122,100 @@ unaryPrimitiveTests = [ (FnApp "fxadd1" [FixNum 1], "2")
                       , (Or [Boolean False, Boolean False, FixNum 6], "6")
                       ]
 
+apply :: String -> Integer -> Integer-> Expr
+apply nm arg1 arg2 = FnApp nm [FixNum arg1, FixNum arg2]
+
 binaryPrimitiveTests :: [TestCase]
 binaryPrimitiveTests = [ (FnApp "fx+" [FixNum 3, FixNum 1], "4")
                        , (FnApp "fx+" [FixNum $ -1, FixNum 1], "0")
+                       , (FnApp "fx+" [FixNum $ 536870911, FixNum $ -1], "536870910")
+                       , (FnApp "fx+" [FixNum $ 536870910, FixNum 1], "536870911")
+                       , (FnApp "fx+" [FixNum $ -536870912, FixNum 1], "-536870911")
+                       , (FnApp "fx+" [FixNum $ -536870911, FixNum $ -1], "-536870912")
+                       , (FnApp "fx+" [FixNum $ 536870911, FixNum $ -536870912], "-1")
                        , (FnApp "fx+" [FnApp "fx+" [FixNum 3, FixNum 5], FixNum 2], "10")
                        , (FnApp "fx+" [FnApp "fx+" [FixNum 3, FixNum 5], FnApp "fx+" [FixNum 7, FixNum 12]], "27")
                        , (FnApp "fx+" [FnApp "fx+" [FnApp "fx+" [FixNum 9, FixNum 15], FixNum 5], FnApp "fx+" [FixNum 7, FixNum 12]], "48")
+
                        , (FnApp "fx-" [FixNum 5, FixNum 1], "4")
+                       , (FnApp "fx-" [FixNum 536870910    , FixNum $ -1] , "536870911")
+                       , (FnApp "fx-" [FixNum 536870911    , FixNum 1] , "536870910")
+                       , (FnApp "fx-" [FixNum $ -536870911 , FixNum 1] , "-536870912")
+                       , (FnApp "fx-" [FixNum $ -536870912 , FixNum $ -1] , "-536870911")
+                       , (FnApp "fx-" [FixNum 1            , FixNum 536870911] , "-536870910")
+                       , (FnApp "fx-" [FixNum $ -1         , FixNum 536870911] , "-536870912")
+                       , (FnApp "fx-" [FixNum 1            , FixNum $ -536870910] , "536870911")
+                       , (FnApp "fx-" [FixNum $ -1         , FixNum $ -536870912] , "536870911")
+                       , (FnApp "fx-" [FixNum 536870911    , FixNum 536870911] , "0")
+                       , (FnApp "fx-" [FixNum 536870911    , FixNum $ -536870912] , "-1")
+                       , (FnApp "fx-" [FixNum $ -536870911 , FixNum $ -536870912] , "1")
+
+                       , (FnApp "fx*" [FixNum 2 , FixNum 3], "6")
+                       , (FnApp "fx*" [FixNum $ -2 , FixNum 3], "-6")
+                       , (FnApp "fx*" [FixNum 0 , FixNum 3], "0")
+                       , (FnApp "fx*"
+                             [FnApp "fx*"
+                                   [FnApp "fx*"
+                                           [FnApp "fx*"
+                                                     [FnApp "fx*" [FixNum 2, FixNum 3], FixNum 4],
+                                                       FixNum 5
+                                                   ],
+                                           FixNum 6
+                                         ],
+                                     FixNum 7
+                                 ], "5040")
+
                        , (FnApp "fxlogand" [FixNum $ -1, FixNum $ -1], "-1")
                        , (FnApp "fxlogand" [FixNum 0, FixNum 1], "0")
                        , (FnApp "fxlogand" [FixNum 5, FixNum 3], "1")
+                       , (FnApp "fxlogand" [FixNum 7, FixNum 3], "3")
+
+                       , (FnApp "fxlognot" [FnApp "fxlogor" [FnApp "fxlognot" [FixNum 7], FixNum 1]], "6")
+                       , (FnApp "fxlognot" [FnApp "fxlogor" [FixNum 1, FnApp "fxlognot" [FixNum 7]]], "6")
+
                        , (FnApp "fx=" [FixNum 2, FixNum 2], "#t")
                        , (FnApp "fx=" [FixNum 2, FixNum 5], "#f")
                        , (FnApp "fx=" [FnApp "fx+" [FixNum 3, FixNum 2], FixNum 5], "#t")
+
                        , (FnApp "fx<" [FixNum 2, FixNum 2], "#f")
                        , (FnApp "fx<" [FixNum 2, FixNum 3], "#t")
                        , (FnApp "fx<" [FixNum 2, FixNum 2], "#f")
                        , (FnApp "fx<" [FixNum $ -2, FixNum 3], "#t")
                        , (FnApp "fx<" [FixNum $ -2, FixNum $ -3], "#f")
                        , (FnApp "fx<" [FixNum $ -2, FixNum $ -1], "#t")
+
                        , (FnApp "fx<=" [FixNum 2, FixNum 3], "#t")
                        , (FnApp "fx<=" [FixNum 2, FixNum 2], "#t")
                        , (FnApp "fx<=" [FixNum $ -2, FixNum 3], "#t")
                        , (FnApp "fx<=" [FixNum $ -2, FixNum $ -3], "#f")
                        , (FnApp "fx<=" [FixNum $ -2, FixNum $ -1], "#t")
+
+                       , (FnApp "fx<=" [ FixNum 12, FixNum 13],  "#t")
+                       , (FnApp "fx<=" [ FixNum 12, FixNum 12],  "#t")
+                       , (FnApp "fx<=" [ FixNum 13, FixNum 12],  "#f")
+                       , (FnApp "fx<=" [ FixNum 16, FnApp "fx+" [ FixNum 13, FixNum 1 ] ],  "#f")
+                       , (FnApp "fx<=" [ FixNum 16, FnApp "fx+" [ FixNum 13, FixNum 3 ] ],  "#t")
+                       , (FnApp "fx<=" [ FixNum 16, FnApp "fx+" [ FixNum 13, FixNum 13] ],  "#t")
+                       , (FnApp "fx<=" [ FnApp "fx+" [ FixNum 13, FixNum 1 ], FixNum 16 ],  "#t")
+                       , (FnApp "fx<=" [ FnApp "fx+" [ FixNum 13, FixNum 3 ], FixNum 16 ],  "#t")
+                       , (FnApp "fx<=" [ FnApp "fx+" [ FixNum 13, FixNum 13], FixNum 16 ],  "#f")
+
                        , (If (FnApp "fx<" [FixNum 1, FixNum 2]) (FixNum 4) (FixNum 7), "4")
+
+                       , (If (FnApp "fx="  [ FixNum 12, FixNum 13 ]) (FixNum 12) (FixNum 13) , "13" )
+                       , (If (FnApp "fx="  [ FixNum 12, FixNum 12 ]) (FixNum 13) (FixNum 14) , "13" )
+                       , (If (FnApp "fx<"  [ FixNum 12, FixNum 13 ]) (FixNum 12) (FixNum 13) , "12" )
+                       , (If (FnApp "fx<"  [ FixNum 12, FixNum 12 ]) (FixNum 13) (FixNum 14) , "14" )
+                       , (If (FnApp "fx<"  [ FixNum 13, FixNum 12 ]) (FixNum 13) (FixNum 14) , "14" )
+                       , (If (FnApp "fx<=" [ FixNum 12, FixNum 13 ]) (FixNum 12) (FixNum 13) , "12" )
+                       , (If (FnApp "fx<=" [ FixNum 12, FixNum 12 ]) (FixNum 12) (FixNum 13) , "12" )
+                       , (If (FnApp "fx<=" [ FixNum 13, FixNum 12 ]) (FixNum 13) (FixNum 14) , "14" )
+                       , (If (FnApp "fx>"  [ FixNum 12, FixNum 13 ]) (FixNum 12) (FixNum 13) , "13" )
+                       , (If (FnApp "fx>"  [ FixNum 12, FixNum 12 ]) (FixNum 12) (FixNum 13) , "13" )
+                       , (If (FnApp "fx>"  [ FixNum 13, FixNum 12 ]) (FixNum 13) (FixNum 14) , "13" )
+                       , (If (FnApp "fx>=" [ FixNum 12, FixNum 13 ]) (FixNum 12) (FixNum 13) , "13" )
+                       , (If (FnApp "fx>=" [ FixNum 12, FixNum 12 ]) (FixNum 12) (FixNum 13) , "12" )
+                       , (If (FnApp "fx>=" [ FixNum 13, FixNum 12 ]) (FixNum 13) (FixNum 14) , "13" )
                        ]
 
 executeTestCases :: [TestCase] -> Expectation
