@@ -144,6 +144,7 @@ unaryPrims = [ ("fxadd1"      , fxadd1)
 binaryPrims :: [(String, FnGen)]
 binaryPrims = [ ("fx+"      , fxPlus)
               , ("fx-"      , fxMinus)
+              , ("fx*"      , fxTimes)
               , ("fxlogand" , fxLogAnd)
               , ("fxlogor"  , fxLogOr)
               , ("fx="      , fxEq)
@@ -320,6 +321,18 @@ fxMinus :: FnGen
 fxMinus = SimpleFn $ \si -> do
   emit $ "subl %eax, " ++ stackValueAt si
   emitStackLoad si
+
+-- normally when we multiply two numbers they are shifted 2 bits
+-- to the right. That's a number x is represented by 4*x
+-- So if we want to get the product of x and y we can produce
+-- the number 4*x*y. This can be done by shifting one of the numbers
+-- two bits to the left and then multiplying it by the other.
+-- (4x) * y
+-- 4(x*y)
+fxTimes :: FnGen
+fxTimes = SimpleFn $ \si -> do
+  emit $ "shr $" ++ show intShift ++ ", %eax"
+  emit $ "mull " ++ stackValueAt si
 
 fxLogAnd :: FnGen
 fxLogAnd = SimpleFn $ \si ->
