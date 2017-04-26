@@ -1,4 +1,4 @@
-module CompileAndRunSpec where
+module CompileAndRunSpec(compileAndRunSpec) where
 
 import Expr
 import Lib(compileAndExecute)

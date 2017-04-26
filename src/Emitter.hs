@@ -86,7 +86,15 @@ emitExpr _ Nil =
   emitLiteral nilValue
 emitExpr si (FnApp name args) =
   let (Just primitive) = lookup name primitives  -- @TODO handle this
-  in emitFnApp si primitive args
+  in case (name, args) of
+       ("fx+", [FixNum x, arg2]) -> do
+         emitExpr si arg2
+         binOp "addl" ("$" ++ show (inmediateRepr x)) "%eax"
+       ("fx+", [arg1, FixNum x]) -> do
+         emitExpr si arg1
+         binOp "addl" ("$" ++ show (inmediateRepr x)) "%eax"
+       _ -> emitFnApp si primitive args
+
 emitExpr si (If condition conseq altern) =
   emitIf si condition conseq altern
 emitExpr si (And preds) =
@@ -309,9 +317,15 @@ type StackIndex = Integer
 stackValueAt :: StackIndex -> String
 stackValueAt si = show si ++ "(%esp)"
 
+type Inst = String
+type Register = String
+
+binOp :: Inst -> Register -> Register -> CodeGen
+binOp op reg1 reg2 = emit $ op ++ " " ++ reg1 ++ ", " ++ reg2
+
 fxPlus :: FnGen
 fxPlus = SimpleFn $ \si ->
-  emit $ "addl " ++ stackValueAt si ++ ", %eax"
+  binOp "addl" (stackValueAt si) "%eax"
 
 emitStackLoad :: StackIndex -> CodeGen
 emitStackLoad si =
