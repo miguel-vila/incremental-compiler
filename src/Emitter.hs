@@ -86,14 +86,7 @@ emitExpr _ Nil =
   emitLiteral nilValue
 emitExpr si (FnApp name args) =
   let (Just primitive) = lookup name primitives  -- @TODO handle this
-  in case (name, args) of
-       ("fx+", [FixNum x, arg2]) -> do
-         emitExpr si arg2
-         binOp "addl" ("$" ++ show (inmediateRepr x)) "%eax"
-       ("fx+", [arg1, FixNum x]) -> do
-         emitExpr si arg1
-         binOp "addl" ("$" ++ show (inmediateRepr x)) "%eax"
-       _ -> emitFnApp si primitive args
+  in emitFnApp si primitive args
 
 emitExpr si (If condition conseq altern) =
   emitIf si condition conseq altern
@@ -105,15 +98,28 @@ emitExpr _ NoOp =
   noop
 
 emitFnApp :: StackIndex -> FnGen -> [Expr] -> CodeGen
-emitFnApp si fnGen args = do
-  emitArgs si args -- @TODO check # of args
+emitFnApp si fnGen args =
   case fnGen of
-    SimpleFn codeGen ->
+    SimpleFn codeGen -> do
+      emitArgs si args -- @TODO check # of args
       codeGen si
+    OptimizableBinOp inst codeGen ->
+      case args of
+       [FixNum x, arg2] -> do
+         emitExpr si arg2
+         binOp inst ("$" ++ show (inmediateRepr x)) "%eax"
+       [arg1, FixNum x] -> do
+         emitExpr si arg1
+         binOp inst ("$" ++ show (inmediateRepr x)) "%eax"
+       _ -> do
+         emitArgs si args -- @TODO check # of args
+         codeGen si
     Predicate predicate -> do
+      emitArgs si args -- @TODO check # of args
       predicate
       ifEqReturnTrue
     Comparison compareType compareBody -> do
+      emitArgs si args -- @TODO check # of args
       compareBody si
       emitBooleanByComparison compareType
 
@@ -129,6 +135,7 @@ emitArgs si args = loop si args noop
           in loop (si' - wordsize) argsTail gen'
 
 data FnGen = SimpleFn (StackIndex -> CodeGen)
+           | OptimizableBinOp Inst (StackIndex -> CodeGen)
            | Predicate CodeGen
            | Comparison ComparisonType (StackIndex -> CodeGen)
 
@@ -324,7 +331,7 @@ binOp :: Inst -> Register -> Register -> CodeGen
 binOp op reg1 reg2 = emit $ op ++ " " ++ reg1 ++ ", " ++ reg2
 
 fxPlus :: FnGen
-fxPlus = SimpleFn $ \si ->
+fxPlus = OptimizableBinOp "addl" $ \si ->
   binOp "addl" (stackValueAt si) "%eax"
 
 emitStackLoad :: StackIndex -> CodeGen
