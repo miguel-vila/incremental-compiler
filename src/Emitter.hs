@@ -97,16 +97,7 @@ emitFnApp si fnGen args =
       emitArgs si args -- @TODO check # of args
       codeGen si
     OptimizableBinOp inst codeGen ->
-      case args of
-       [L x, arg2] -> do
-         emitExpr si arg2
-         binOp inst ("$" ++ show (inmediateRepr x)) "%eax"
-       [arg1, L x] -> do
-         emitExpr si arg1
-         binOp inst ("$" ++ show (inmediateRepr x)) "%eax"
-       _ -> do
-         emitArgs si args -- @TODO check # of args
-         codeGen si
+      emitOptimizableBinOp inst codeGen args si
     Predicate predicate -> do
       emitArgs si args -- @TODO check # of args
       predicate
@@ -115,6 +106,19 @@ emitFnApp si fnGen args =
       emitArgs si args -- @TODO check # of args
       compareBody si
       emitBooleanByComparison compareType
+
+emitOptimizableBinOp :: Inst -> (StackIndex -> CodeGen) -> [Expr] -> StackIndex -> CodeGen
+emitOptimizableBinOp inst codeGen args si =
+  case args of
+    [L x, arg2] -> do
+      emitExpr si arg2
+      binOp inst ("$" ++ show (inmediateRepr x)) "%eax"
+    [arg1, L x] -> do
+      emitExpr si arg1
+      binOp inst ("$" ++ show (inmediateRepr x)) "%eax"
+    _ -> do
+      emitArgs si args -- @TODO check # of args
+      codeGen si
 
 emitArgs :: StackIndex -> [Expr] -> CodeGen
 emitArgs si args = loop si args noop
@@ -283,15 +287,20 @@ emitIf si condition conseq altern = do
         case condition of
           FnApp fnName args ->
             let (Just primitive) = lookup fnName primitives  -- @TODO handle this
-                emitAndJump (SimpleFn fnCode)    = emitIfFor $ fnCode si
+                emitAndJump (SimpleFn fnCode) = do
+                  emitArgs si args
+                  emitIfFor $ fnCode si
+                emitAndJump (OptimizableBinOp inst body) = do
+                  emitOptimizableBinOp inst body args si
                 emitAndJump (Predicate predicateCode) = do
+                  emitArgs si args
                   predicateCode
                   ifNotEqJumpTo alternLabel
                 emitAndJump (Comparison cmp fnCode)  = do
+                  emitArgs si args
                   fnCode si
                   ifComparisonJumpTo (opposing cmp) alternLabel
-            in do emitArgs si args
-                  emitAndJump primitive
+            in emitAndJump primitive
           _ -> do emitExpr si condition
                   compareTo falseValue
                   ifEqJumpTo alternLabel
