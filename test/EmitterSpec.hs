@@ -39,8 +39,6 @@ binOp name arg1 arg2 = FnApp name [arg1, arg2]
 
 (~>) = (,)
 
-fx = FixNum
-
 fxPlusTests :: [TestCase]
 fxPlusTests =
   [ binOp "fx+" (fx 1) (fx 2)

@@ -76,18 +76,11 @@ ifEqReturnTrue :: CodeGen
 ifEqReturnTrue = emitBooleanByComparison Eq
 
 emitExpr :: StackIndex -> Expr -> CodeGen
-emitExpr _ (FixNum n) =
-  emitLiteral $ inmediateRepr n
-emitExpr _ (Boolean bool) =
-  emitLiteral $ inmediateRepr bool
-emitExpr _ (Character c) =
-  emitLiteral $ inmediateRepr c
-emitExpr _ Nil =
-  emitLiteral nilValue
+emitExpr _ (L literal) =
+  emitLiteral $ inmediateRepr literal
 emitExpr si (FnApp name args) =
   let (Just primitive) = lookup name primitives  -- @TODO handle this
   in emitFnApp si primitive args
-
 emitExpr si (If condition conseq altern) =
   emitIf si condition conseq altern
 emitExpr si (And preds) =
@@ -105,10 +98,10 @@ emitFnApp si fnGen args =
       codeGen si
     OptimizableBinOp inst codeGen ->
       case args of
-       [FixNum x, arg2] -> do
+       [L x, arg2] -> do
          emitExpr si arg2
          binOp inst ("$" ++ show (inmediateRepr x)) "%eax"
-       [arg1, FixNum x] -> do
+       [arg1, L x] -> do
          emitExpr si arg1
          binOp inst ("$" ++ show (inmediateRepr x)) "%eax"
        _ -> do
@@ -171,11 +164,11 @@ binaryPrims = [ ("fx+"      , fxPlus)
 
 fxadd1 :: FnGen
 fxadd1 = SimpleFn $ const $
-  emit $ "addl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
+  emit $ "addl $" ++ (show $ inmediateRepr $ FixNum 1) ++ ", %eax"
 
 fxsub1 :: FnGen
 fxsub1 = SimpleFn $ const $
-  emit $ "subl $" ++ (show $ inmediateRepr (1 :: Integer)) ++ ", %eax"
+  emit $ "subl $" ++ (show $ inmediateRepr $ FixNum 1) ++ ", %eax"
 
 charToFixNum :: FnGen
 charToFixNum = SimpleFn $ const $
@@ -310,12 +303,12 @@ emitIf si condition conseq altern = do
   emitLabel endLabel
 
 emitAnd :: StackIndex -> [Expr] -> CodeGen
-emitAnd si []            = emitExpr si (Boolean False)
+emitAnd si []            = emitExpr si _False
 emitAnd si [test]        = emitExpr si test
-emitAnd si (test : rest) = emitIf si test (And rest) (Boolean False)
+emitAnd si (test : rest) = emitIf si test (And rest) _False
 
 emitOr :: StackIndex -> [Expr] -> CodeGen
-emitOr si []            = emitExpr si (Boolean True)
+emitOr si []            = emitExpr si _True
 emitOr si [test]        = emitExpr si test
 emitOr si (test : rest) = emitIf si test NoOp (Or rest)
 
