@@ -14,6 +14,11 @@ type GenState = StateT CodeGenState (Writer Code)
 
 type CodeGen = GenState ()
 
+data FnGen = UnaryFn CodeGen
+           | BinaryFn (Register -> Register -> CodeGen)
+           | Predicate CodeGen
+           | Comparison ComparisonType (Register -> CodeGen)
+
 wordsize :: Integer
 wordsize = 4
 
@@ -66,8 +71,8 @@ applyMask mask =
   emit $ "and $" ++ show mask ++ ", %al"
 
 emitBooleanByComparison :: ComparisonType -> CodeGen
-emitBooleanByComparison cmp = do
-  emit $ comparisonToSet cmp ++ " %al"  -- set %al to the result of the comparison
+emitBooleanByComparison compareType = do
+  emit $ comparisonToSet compareType ++ " %al"  -- set %al to the result of the comparison
   emit $ "movzbl %al, %eax"                   -- mov %al to %eax and pad the remaining bits with 0: https://en.wikibooks.org/wiki/X86_Assembly/Data_Transfer#Move_with_zero_extend --> why is this needed?
   emit $ "sal $6, %al"                        -- move the result bit 6 bits to the left
   emit $ "or $" ++ show falseValue ++ ", %al" -- or with the false value to return a "boolean" in the expected format
@@ -80,7 +85,7 @@ emitExpr _ (L literal) =
   emitLiteral $ inmediateRepr literal
 emitExpr si (FnApp name args) =
   let (Just primitive) = lookup name primitives  -- @TODO handle this
-  in emitFnApp si primitive args
+  in emitFnApp name si primitive args
 emitExpr si (If condition conseq altern) =
   emitIf si condition conseq altern
 emitExpr si (And preds) =
@@ -90,35 +95,44 @@ emitExpr si (Or preds) =
 emitExpr _ NoOp =
   noop
 
-emitFnApp :: StackIndex -> FnGen -> [Expr] -> CodeGen
-emitFnApp si fnGen args =
+emitFnApp :: String -> StackIndex -> FnGen -> [Expr] -> CodeGen
+emitFnApp fnName si fnGen args =
   case fnGen of
-    SimpleFn codeGen -> do
+    UnaryFn codeGen -> do
       emitArgs si args -- @TODO check # of args
-      codeGen si
-    OptimizableBinOp inst codeGen ->
-      emitOptimizableBinOp inst codeGen args si
+      codeGen
+    BinaryFn codeGen ->
+      if elem fnName canBeOptimized
+      then emitBinaryFnOpt codeGen args si
+      else emitBinaryFnApp codeGen args si
     Predicate predicate -> do
       emitArgs si args -- @TODO check # of args
       predicate
       ifEqReturnTrue
     Comparison compareType compareBody -> do
       emitArgs si args -- @TODO check # of args
-      compareBody si
+      compareBody (stackValueAt si)
       emitBooleanByComparison compareType
 
-emitOptimizableBinOp :: Inst -> (StackIndex -> CodeGen) -> [Expr] -> StackIndex -> CodeGen
-emitOptimizableBinOp inst codeGen args si =
-  case args of
-    [L x, arg2] -> do
-      emitExpr si arg2
-      binOp inst ("$" ++ show (inmediateRepr x)) "%eax"
-    [arg1, L x] -> do
-      emitExpr si arg1
-      binOp inst ("$" ++ show (inmediateRepr x)) "%eax"
-    _ -> do
-      emitArgs si args -- @TODO check # of args
-      codeGen si
+canBeOptimized :: [String]
+canBeOptimized = [ "fx+"
+                 ]
+
+emitBinaryFnApp :: (Register -> Register -> CodeGen) -> [Expr] -> StackIndex -> CodeGen
+emitBinaryFnApp codeGen args si = do
+    emitArgs si args
+    codeGen (stackValueAt si) eax
+
+emitBinaryFnOpt :: (Register -> Register -> CodeGen) -> [Expr] -> StackIndex -> CodeGen
+emitBinaryFnOpt codeGen args si = case args of
+  [L arg1, arg2] -> do
+    emitExpr si arg2
+    codeGen ("$" ++ (show $ inmediateRepr arg1)) eax
+  [arg1, L arg2] -> do
+    emitExpr si arg1
+    codeGen ("$" ++ (show $ inmediateRepr arg2)) eax
+  _              ->
+    emitBinaryFnApp codeGen args si
 
 emitArgs :: StackIndex -> [Expr] -> CodeGen
 emitArgs si args = loop si args noop
@@ -130,11 +144,6 @@ emitArgs si args = loop si args noop
                         emitExpr si' argh
                         emit $ "movl %eax, " ++ stackValueAt si'
           in loop (si' - wordsize) argsTail gen'
-
-data FnGen = SimpleFn (StackIndex -> CodeGen)
-           | OptimizableBinOp Inst (StackIndex -> CodeGen)
-           | Predicate CodeGen
-           | Comparison ComparisonType (StackIndex -> CodeGen)
 
 primitives :: [(String, FnGen)]
 primitives = unaryPrims ++ binaryPrims
@@ -167,19 +176,19 @@ binaryPrims = [ ("fx+"      , fxPlus)
               ]
 
 fxadd1 :: FnGen
-fxadd1 = SimpleFn $ const $
+fxadd1 = UnaryFn $
   emit $ "addl $" ++ (show $ inmediateRepr $ FixNum 1) ++ ", %eax"
 
 fxsub1 :: FnGen
-fxsub1 = SimpleFn $ const $
+fxsub1 = UnaryFn $
   emit $ "subl $" ++ (show $ inmediateRepr $ FixNum 1) ++ ", %eax"
 
 charToFixNum :: FnGen
-charToFixNum = SimpleFn $ const $
+charToFixNum = UnaryFn $
   emit $ "sarl $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the right 6 bits (remember char tag is 00001111)
 
 fixNumToChar :: FnGen
-fixNumToChar = SimpleFn $ const $ do
+fixNumToChar = UnaryFn $ do
   emit $ "sall $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the left 6 bits
   emit $ "orl $" ++ show charTag ++ ", %eax" -- add char tag
 
@@ -221,8 +230,8 @@ comparisonToSet GreaterOrEq = "setge"
 comparisonToSet NotEq       = "setne"
 
 ifComparisonJumpTo :: ComparisonType -> Label -> CodeGen
-ifComparisonJumpTo cmp label =
-  emit $ comparisonToJump cmp ++" " ++ label
+ifComparisonJumpTo compareType label =
+  emit $ comparisonToJump compareType ++" " ++ label
 
 ifEqJumpTo :: Label -> CodeGen
 ifEqJumpTo = ifComparisonJumpTo Eq
@@ -263,7 +272,7 @@ isFxZero :: FnGen
 isFxZero = Predicate $ compareTo 0
 
 fxLogNot :: FnGen
-fxLogNot = SimpleFn $ const $ do
+fxLogNot = UnaryFn $ do
   emit "not %eax"
   emit "sar $2, %eax"
   emit "sal $2, %eax"
@@ -287,20 +296,18 @@ emitIf si condition conseq altern = do
         case condition of
           FnApp fnName args ->
             let (Just primitive) = lookup fnName primitives  -- @TODO handle this
-                emitAndJump (SimpleFn fnCode) = do
-                  emitArgs si args
-                  emitIfFor $ fnCode si
-                emitAndJump (OptimizableBinOp inst body) = do
-                  emitOptimizableBinOp inst body args si
+                emitAndJump (UnaryFn fnCode) =
+                  emitIfFor fnCode
+                emitAndJump (BinaryFn fnCode) =
+                  emitIfFor $ fnCode (stackValueAt si) eax
                 emitAndJump (Predicate predicateCode) = do
-                  emitArgs si args
                   predicateCode
                   ifNotEqJumpTo alternLabel
-                emitAndJump (Comparison cmp fnCode)  = do
-                  emitArgs si args
-                  fnCode si
-                  ifComparisonJumpTo (opposing cmp) alternLabel
-            in emitAndJump primitive
+                emitAndJump (Comparison comparisonType fnCode)  = do
+                  fnCode (stackValueAt si)
+                  ifComparisonJumpTo (opposing comparisonType) alternLabel
+            in do emitArgs si args
+                  emitAndJump primitive
           _ -> do emitExpr si condition
                   compareTo falseValue
                   ifEqJumpTo alternLabel
@@ -327,23 +334,35 @@ stackValueAt :: StackIndex -> String
 stackValueAt si = show si ++ "(%esp)"
 
 type Inst = String
+type Op = String
 type Register = String
 
-binOp :: Inst -> Register -> Register -> CodeGen
-binOp op reg1 reg2 = emit $ op ++ " " ++ reg1 ++ ", " ++ reg2
+binOp :: Op -> Register -> Register -> CodeGen
+binOp op reg1 reg2 =
+  emit $ op ++ " " ++ reg1 ++ ", " ++ reg2
+
+eax :: String
+eax = "%eax"
+
+addl :: Register -> Register -> CodeGen
+addl = binOp "addl"
 
 fxPlus :: FnGen
-fxPlus = OptimizableBinOp "addl" $ \si ->
-  binOp "addl" (stackValueAt si) "%eax"
+fxPlus = BinaryFn addl
 
-emitStackLoad :: StackIndex -> CodeGen
-emitStackLoad si =
-  emit $ "mov " ++ stackValueAt si ++ ", %eax"
+mov :: Register -> Register -> CodeGen
+mov reg1 reg2 = binOp "mov" reg1 reg2
+
+subl :: Register -> Register -> CodeGen
+subl = binOp "subl"
 
 fxMinus :: FnGen
-fxMinus = SimpleFn $ \si -> do
-  emit $ "subl %eax, " ++ stackValueAt si
-  emitStackLoad si
+fxMinus = BinaryFn $ \reg1 reg2 -> do
+  subl reg2 reg1
+  mov  reg1 reg2
+
+shr :: Int -> Register -> CodeGen
+shr n reg2 = binOp "shr" ("$" ++ show n) reg2
 
 -- normally when we multiply two numbers they are shifted 2 bits
 -- to the right. That's a number x is represented by 4*x
@@ -353,24 +372,31 @@ fxMinus = SimpleFn $ \si -> do
 -- (4x) * y
 -- 4(x*y)
 fxTimes :: FnGen
-fxTimes = SimpleFn $ \si -> do
-  emit $ "shr $" ++ show intShift ++ ", %eax"
-  emit $ "mull " ++ stackValueAt si
+fxTimes = BinaryFn $ \reg1 reg2 -> do
+  shr intShift reg2
+  emit $ "mull " ++ reg1
+
+_and :: Register -> Register -> CodeGen
+_and = binOp "and"
 
 fxLogAnd :: FnGen
-fxLogAnd = SimpleFn $ \si ->
-  emit $ "and " ++ stackValueAt si ++ ", %eax"
+fxLogAnd = BinaryFn _and
+
+_or :: Register -> Register -> CodeGen
+_or = binOp "or"
 
 fxLogOr :: FnGen
-fxLogOr = SimpleFn $ \si ->
-  emit $ "or " ++ stackValueAt si ++ ", %eax"
+fxLogOr = BinaryFn _or
 
-compareEaxToStackValue :: StackIndex -> CodeGen
-compareEaxToStackValue si =
-  emit $ "cmp %eax, " ++ stackValueAt si
+cmp :: Register -> Register -> CodeGen
+cmp = binOp "cmp"
+
+compareEaxToStackValue :: Register -> CodeGen
+compareEaxToStackValue si = cmp "%eax" si
 
 fxComparison :: ComparisonType -> FnGen
-fxComparison cmp = Comparison cmp compareEaxToStackValue
+fxComparison comparisonType =
+  Comparison comparisonType compareEaxToStackValue
 
 fxEq :: FnGen
 fxEq = fxComparison Eq

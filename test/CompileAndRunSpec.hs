@@ -3,9 +3,6 @@ module CompileAndRunSpec(compileAndRunSpec) where
 import Expr
 import Lib(compileAndExecute)
 import Test.Hspec
-import Control.Exception (evaluate)
-import Control.Monad.Error.Class
-import Test.HUnit
 
 whenRunShouldPrint :: Expr -> String -> Expectation
 whenRunShouldPrint source expectedOutput =
@@ -122,109 +119,129 @@ unaryPrimitiveTests = [ (FnApp "fxadd1" [fx 1], "2")
                       , (Or [_False, _False, fx 6], "6")
                       ]
 
-apply :: String -> Integer -> Integer-> Expr
-apply nm arg1 arg2 = FnApp nm [fx arg1, fx arg2]
+fxPlusTests :: [TestCase]
+fxPlusTests = [ (FnApp "fx+" [fx 3, fx 1], "4")
+              , (FnApp "fx+" [fx $ -1, fx 1], "0")
+              , (FnApp "fx+" [fx $ 536870911, fx $ -1], "536870910")
+              , (FnApp "fx+" [fx $ 536870910, fx 1], "536870911")
+              , (FnApp "fx+" [fx $ -536870912, fx 1], "-536870911")
+              , (FnApp "fx+" [fx $ -536870911, fx $ -1], "-536870912")
+              , (FnApp "fx+" [fx $ 536870911, fx $ -536870912], "-1")
+              , (FnApp "fx+" [FnApp "fx+" [fx 3, fx 5], fx 2], "10")
+              , (FnApp "fx+" [FnApp "fx+" [fx 3, fx 5], FnApp "fx+" [fx 7, fx 12]], "27")
+              , (FnApp "fx+" [FnApp "fx+" [FnApp "fx+" [fx 9, fx 15], fx 5], FnApp "fx+" [fx 7, fx 12]], "48")
+              ]
 
-binaryPrimitiveTests :: [TestCase]
-binaryPrimitiveTests = [ (FnApp "fx+" [fx 3, fx 1], "4")
-                       , (FnApp "fx+" [fx $ -1, fx 1], "0")
-                       , (FnApp "fx+" [fx $ 536870911, fx $ -1], "536870910")
-                       , (FnApp "fx+" [fx $ 536870910, fx 1], "536870911")
-                       , (FnApp "fx+" [fx $ -536870912, fx 1], "-536870911")
-                       , (FnApp "fx+" [fx $ -536870911, fx $ -1], "-536870912")
-                       , (FnApp "fx+" [fx $ 536870911, fx $ -536870912], "-1")
-                       , (FnApp "fx+" [FnApp "fx+" [fx 3, fx 5], fx 2], "10")
-                       , (FnApp "fx+" [FnApp "fx+" [fx 3, fx 5], FnApp "fx+" [fx 7, fx 12]], "27")
-                       , (FnApp "fx+" [FnApp "fx+" [FnApp "fx+" [fx 9, fx 15], fx 5], FnApp "fx+" [fx 7, fx 12]], "48")
+fxMinusTests :: [TestCase]
+fxMinusTests = [ (FnApp "fx-" [fx 5, fx 1], "4")
+               , (FnApp "fx-" [fx 536870910    , fx $ -1] , "536870911")
+               , (FnApp "fx-" [fx 536870911    , fx 1] , "536870910")
+               , (FnApp "fx-" [fx $ -536870911 , fx 1] , "-536870912")
+               , (FnApp "fx-" [fx $ -536870912 , fx $ -1] , "-536870911")
+               , (FnApp "fx-" [fx 1            , fx 536870911] , "-536870910")
+               , (FnApp "fx-" [fx $ -1         , fx 536870911] , "-536870912")
+               , (FnApp "fx-" [fx 1            , fx $ -536870910] , "536870911")
+               , (FnApp "fx-" [fx $ -1         , fx $ -536870912] , "536870911")
+               , (FnApp "fx-" [fx 536870911    , fx 536870911] , "0")
+               , (FnApp "fx-" [fx 536870911    , fx $ -536870912] , "-1")
+               , (FnApp "fx-" [fx $ -536870911 , fx $ -536870912] , "1")
+               ]
 
-                       , (FnApp "fx-" [fx 5, fx 1], "4")
-                       , (FnApp "fx-" [fx 536870910    , fx $ -1] , "536870911")
-                       , (FnApp "fx-" [fx 536870911    , fx 1] , "536870910")
-                       , (FnApp "fx-" [fx $ -536870911 , fx 1] , "-536870912")
-                       , (FnApp "fx-" [fx $ -536870912 , fx $ -1] , "-536870911")
-                       , (FnApp "fx-" [fx 1            , fx 536870911] , "-536870910")
-                       , (FnApp "fx-" [fx $ -1         , fx 536870911] , "-536870912")
-                       , (FnApp "fx-" [fx 1            , fx $ -536870910] , "536870911")
-                       , (FnApp "fx-" [fx $ -1         , fx $ -536870912] , "536870911")
-                       , (FnApp "fx-" [fx 536870911    , fx 536870911] , "0")
-                       , (FnApp "fx-" [fx 536870911    , fx $ -536870912] , "-1")
-                       , (FnApp "fx-" [fx $ -536870911 , fx $ -536870912] , "1")
+fxTimesTests :: [TestCase]
+fxTimesTests = [ (FnApp "fx*" [fx 2 , fx 3], "6")
+               , (FnApp "fx*" [fx $ -2 , fx 3], "-6")
+               , (FnApp "fx*" [fx 0 , fx 3], "0")
+               , (FnApp "fx*"
+                  [FnApp "fx*"
+                    [FnApp "fx*"
+                      [FnApp "fx*"
+                       [FnApp "fx*" [fx 2, fx 3], fx 4],
+                        fx 5
+                      ],
+                      fx 6
+                    ],
+                    fx 7
+                  ], "5040")
+               ]
 
-                       , (FnApp "fx*" [fx 2 , fx 3], "6")
-                       , (FnApp "fx*" [fx $ -2 , fx 3], "-6")
-                       , (FnApp "fx*" [fx 0 , fx 3], "0")
-                       , (FnApp "fx*"
-                             [FnApp "fx*"
-                                   [FnApp "fx*"
-                                           [FnApp "fx*"
-                                                     [FnApp "fx*" [fx 2, fx 3], fx 4],
-                                                       fx 5
-                                                   ],
-                                           fx 6
-                                         ],
-                                     fx 7
-                                 ], "5040")
+fxLogAndTests :: [TestCase]
+fxLogAndTests = [ (FnApp "fxlogand" [fx $ -1, fx $ -1], "-1")
+                , (FnApp "fxlogand" [fx 0, fx 1], "0")
+                , (FnApp "fxlogand" [fx 5, fx 3], "1")
+                , (FnApp "fxlogand" [fx 7, fx 3], "3")
+                ]
 
-                       , (FnApp "fxlogand" [fx $ -1, fx $ -1], "-1")
-                       , (FnApp "fxlogand" [fx 0, fx 1], "0")
-                       , (FnApp "fxlogand" [fx 5, fx 3], "1")
-                       , (FnApp "fxlogand" [fx 7, fx 3], "3")
+fxLogNotTests :: [TestCase]
+fxLogNotTests = [ (FnApp "fxlognot" [FnApp "fxlogor" [FnApp "fxlognot" [fx 7], fx 1]], "6")
+                , (FnApp "fxlognot" [FnApp "fxlogor" [fx 1, FnApp "fxlognot" [fx 7]]], "6")
+                ]
 
-                       , (FnApp "fxlognot" [FnApp "fxlogor" [FnApp "fxlognot" [fx 7], fx 1]], "6")
-                       , (FnApp "fxlognot" [FnApp "fxlogor" [fx 1, FnApp "fxlognot" [fx 7]]], "6")
+fxEqualsTests :: [TestCase]
+fxEqualsTests = [ (FnApp "fx=" [fx 2, fx 2], "#t")
+                , (FnApp "fx=" [fx 2, fx 5], "#f")
+                , (FnApp "fx=" [FnApp "fx+" [fx 3, fx 2], fx 5], "#t")
+                ]
 
-                       , (FnApp "fx=" [fx 2, fx 2], "#t")
-                       , (FnApp "fx=" [fx 2, fx 5], "#f")
-                       , (FnApp "fx=" [FnApp "fx+" [fx 3, fx 2], fx 5], "#t")
+fxLessTests :: [TestCase]
+fxLessTests = [ (FnApp "fx<" [fx 2, fx 2], "#f")
+              , (FnApp "fx<" [fx 2, fx 3], "#t")
+              , (FnApp "fx<" [fx 2, fx 2], "#f")
+              , (FnApp "fx<" [fx $ -2, fx 3], "#t")
+              , (FnApp "fx<" [fx $ -2, fx $ -3], "#f")
+              , (FnApp "fx<" [fx $ -2, fx $ -1], "#t")
+              ]
 
-                       , (FnApp "fx<" [fx 2, fx 2], "#f")
-                       , (FnApp "fx<" [fx 2, fx 3], "#t")
-                       , (FnApp "fx<" [fx 2, fx 2], "#f")
-                       , (FnApp "fx<" [fx $ -2, fx 3], "#t")
-                       , (FnApp "fx<" [fx $ -2, fx $ -3], "#f")
-                       , (FnApp "fx<" [fx $ -2, fx $ -1], "#t")
+fxLessOrEqTests :: [TestCase]
+fxLessOrEqTests = [ (FnApp "fx<=" [fx 2, fx 3], "#t")
+                  , (FnApp "fx<=" [fx 2, fx 2], "#t")
+                  , (FnApp "fx<=" [fx $ -2, fx 3], "#t")
+                  , (FnApp "fx<=" [fx $ -2, fx $ -3], "#f")
+                  , (FnApp "fx<=" [fx $ -2, fx $ -1], "#t")
+                  , (FnApp "fx<=" [ fx 12, fx 13],  "#t")
+                  , (FnApp "fx<=" [ fx 12, fx 12],  "#t")
+                  , (FnApp "fx<=" [ fx 13, fx 12],  "#f")
+                  , (FnApp "fx<=" [ fx 16, FnApp "fx+" [ fx 13, fx 1 ] ],  "#f")
+                  , (FnApp "fx<=" [ fx 16, FnApp "fx+" [ fx 13, fx 3 ] ],  "#t")
+                  , (FnApp "fx<=" [ fx 16, FnApp "fx+" [ fx 13, fx 13] ],  "#t")
+                  , (FnApp "fx<=" [ FnApp "fx+" [ fx 13, fx 1 ], fx 16 ],  "#t")
+                  , (FnApp "fx<=" [ FnApp "fx+" [ fx 13, fx 3 ], fx 16 ],  "#t")
+                  , (FnApp "fx<=" [ FnApp "fx+" [ fx 13, fx 13], fx 16 ],  "#f")
+                  ]
 
-                       , (FnApp "fx<=" [fx 2, fx 3], "#t")
-                       , (FnApp "fx<=" [fx 2, fx 2], "#t")
-                       , (FnApp "fx<=" [fx $ -2, fx 3], "#t")
-                       , (FnApp "fx<=" [fx $ -2, fx $ -3], "#f")
-                       , (FnApp "fx<=" [fx $ -2, fx $ -1], "#t")
-
-                       , (FnApp "fx<=" [ fx 12, fx 13],  "#t")
-                       , (FnApp "fx<=" [ fx 12, fx 12],  "#t")
-                       , (FnApp "fx<=" [ fx 13, fx 12],  "#f")
-                       , (FnApp "fx<=" [ fx 16, FnApp "fx+" [ fx 13, fx 1 ] ],  "#f")
-                       , (FnApp "fx<=" [ fx 16, FnApp "fx+" [ fx 13, fx 3 ] ],  "#t")
-                       , (FnApp "fx<=" [ fx 16, FnApp "fx+" [ fx 13, fx 13] ],  "#t")
-                       , (FnApp "fx<=" [ FnApp "fx+" [ fx 13, fx 1 ], fx 16 ],  "#t")
-                       , (FnApp "fx<=" [ FnApp "fx+" [ fx 13, fx 3 ], fx 16 ],  "#t")
-                       , (FnApp "fx<=" [ FnApp "fx+" [ fx 13, fx 13], fx 16 ],  "#f")
-
-                       , (If (FnApp "fx<" [fx 1, fx 2]) (fx 4) (fx 7), "4")
-
-                       , (If (FnApp "fx="  [ fx 12, fx 13 ]) (fx 12) (fx 13) , "13" )
-                       , (If (FnApp "fx="  [ fx 12, fx 12 ]) (fx 13) (fx 14) , "13" )
-                       , (If (FnApp "fx<"  [ fx 12, fx 13 ]) (fx 12) (fx 13) , "12" )
-                       , (If (FnApp "fx<"  [ fx 12, fx 12 ]) (fx 13) (fx 14) , "14" )
-                       , (If (FnApp "fx<"  [ fx 13, fx 12 ]) (fx 13) (fx 14) , "14" )
-                       , (If (FnApp "fx<=" [ fx 12, fx 13 ]) (fx 12) (fx 13) , "12" )
-                       , (If (FnApp "fx<=" [ fx 12, fx 12 ]) (fx 12) (fx 13) , "12" )
-                       , (If (FnApp "fx<=" [ fx 13, fx 12 ]) (fx 13) (fx 14) , "14" )
-                       , (If (FnApp "fx>"  [ fx 12, fx 13 ]) (fx 12) (fx 13) , "13" )
-                       , (If (FnApp "fx>"  [ fx 12, fx 12 ]) (fx 12) (fx 13) , "13" )
-                       , (If (FnApp "fx>"  [ fx 13, fx 12 ]) (fx 13) (fx 14) , "13" )
-                       , (If (FnApp "fx>=" [ fx 12, fx 13 ]) (fx 12) (fx 13) , "13" )
-                       , (If (FnApp "fx>=" [ fx 12, fx 12 ]) (fx 12) (fx 13) , "12" )
-                       , (If (FnApp "fx>=" [ fx 13, fx 12 ]) (fx 13) (fx 14) , "13" )
-                       ]
+ifComparisonTests :: [TestCase]
+ifComparisonTests = [ (If (FnApp "fx<" [fx 1, fx 2]) (fx 4) (fx 7), "4")
+                    , (If (FnApp "fx="  [ fx 12, fx 13 ]) (fx 12) (fx 13) , "13" )
+                    , (If (FnApp "fx="  [ fx 12, fx 12 ]) (fx 13) (fx 14) , "13" )
+                    , (If (FnApp "fx<"  [ fx 12, fx 13 ]) (fx 12) (fx 13) , "12" )
+                    , (If (FnApp "fx<"  [ fx 12, fx 12 ]) (fx 13) (fx 14) , "14" )
+                    , (If (FnApp "fx<"  [ fx 13, fx 12 ]) (fx 13) (fx 14) , "14" )
+                    , (If (FnApp "fx<=" [ fx 12, fx 13 ]) (fx 12) (fx 13) , "12" )
+                    , (If (FnApp "fx<=" [ fx 12, fx 12 ]) (fx 12) (fx 13) , "12" )
+                    , (If (FnApp "fx<=" [ fx 13, fx 12 ]) (fx 13) (fx 14) , "14" )
+                    , (If (FnApp "fx>"  [ fx 12, fx 13 ]) (fx 12) (fx 13) , "13" )
+                    , (If (FnApp "fx>"  [ fx 12, fx 12 ]) (fx 12) (fx 13) , "13" )
+                    , (If (FnApp "fx>"  [ fx 13, fx 12 ]) (fx 13) (fx 14) , "13" )
+                    , (If (FnApp "fx>=" [ fx 12, fx 13 ]) (fx 12) (fx 13) , "13" )
+                    , (If (FnApp "fx>=" [ fx 12, fx 12 ]) (fx 12) (fx 13) , "12" )
+                    , (If (FnApp "fx>=" [ fx 13, fx 12 ]) (fx 13) (fx 14) , "13" )
+                    ]
 
 executeTestCases :: [TestCase] -> Expectation
 executeTestCases = mapM_ (\(source, expectedOutput) -> whenRunShouldPrint source expectedOutput)
 
+compileAndRunSpec :: SpecWith ()
 compileAndRunSpec = describe "CompileAndExecute" $ do
   it "evaluates number expressions" $ executeTestCases intTests
   it "evaluates boolean expressions" $ executeTestCases boolTests
   it "evaluates character expressions" $ executeTestCases charTests
   it "evaluates nil" $ nil `whenRunShouldPrint` "nil"
   it "evaluates unary primitive invocations" $ executeTestCases unaryPrimitiveTests
-  it "evaluates binary primitive invocations" $ executeTestCases binaryPrimitiveTests
+  it "evaluates fx+ invocations" $ executeTestCases fxPlusTests
+  it "evaluates fx- invocations" $ executeTestCases fxMinusTests
+  it "evaluates fx* invocations" $ executeTestCases fxTimesTests
+  it "evaluates fxlogand invocations" $ executeTestCases fxLogAndTests
+  it "evaluates fxlognot invocations" $ executeTestCases fxLogNotTests
+  it "evaluates fx= invocations" $ executeTestCases fxEqualsTests
+  it "evaluates fx< invocations" $ executeTestCases fxLessTests
+  it "evaluates fx<= invocations" $ executeTestCases fxLessOrEqTests
+  it "evaluates if comparisons expressions" $ executeTestCases ifComparisonTests
