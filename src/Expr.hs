@@ -5,12 +5,17 @@ data Expr = L Literal
           | If Expr Expr Expr
           | And [Expr]
           | Or [Expr]
+          | Let [Binding] Expr
           | NoOp
 
 data Literal = FixNum Integer
              | Boolean Bool
              | Character Char
              | Nil
+
+data Binding = Binding { name :: String
+                       , value :: Expr
+                       }
 
 _False :: Expr
 _False = L $ Boolean False

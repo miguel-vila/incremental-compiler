@@ -15,6 +15,7 @@ library
   exposed-modules:     Lib, Expr, Emitter
   other-modules:       Parser, InmediateRepr, MagicNumbers
   build-depends:       base >= 4.7 && < 5
+                     , hashmap
                      , mtl
                      , parsec
                      , process
@@ -33,7 +34,7 @@ test-suite inc-compiler-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
-  other-modules:       CompileAndRunSpec
+  other-modules:       CompileAndRunSpec, EmitterSpec
   build-depends:       base
                      , parsec
                      , inc-compiler

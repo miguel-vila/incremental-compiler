@@ -1,13 +1,16 @@
 module Emitter where
 
+import Prelude hiding (lookup)
 import Control.Monad.Writer.Lazy
 import MagicNumbers
 import Expr
 import InmediateRepr
 import Control.Monad.State.Lazy
+import Data.HashMap
 
 type Code = [String]
 
+-- The id for the function labels
 type CodeGenState = Int
 
 type GenState = StateT CodeGenState (Writer Code)
@@ -25,8 +28,11 @@ wordsize = 4
 initialState :: CodeGenState
 initialState = 0
 
+initialStackIndex :: StackIndex
+initialStackIndex = - wordsize
+
 compile :: Expr -> Code
-compile = executeGen . wrapInEntryPoint . emitExpr (- wordsize)
+compile = executeGen . wrapInEntryPoint . emitExpr initialStackIndex
 
 executeGen :: CodeGen -> Code
 executeGen codeGen = execWriter $ evalStateT codeGen initialState
@@ -92,6 +98,7 @@ emitExpr si (And preds) =
   emitAnd si preds
 emitExpr si (Or preds) =
   emitOr si preds
+--emitExpr si (Let bindings body) =
 emitExpr _ NoOp =
   noop
 
@@ -134,6 +141,12 @@ emitBinaryFnOpt codeGen args si = case args of
   _              ->
     emitBinaryFnApp codeGen args si
 
+movl :: Register -> Register -> CodeGen
+movl = binOp "movl"
+
+emitStackSave :: StackIndex -> CodeGen
+emitStackSave si = movl eax (stackValueAt si)
+
 emitArgs :: StackIndex -> [Expr] -> CodeGen
 emitArgs si args = loop si args noop
   where loop si' [arg]           gen =
@@ -142,38 +155,38 @@ emitArgs si args = loop si args noop
         loop si' (argh:argsTail) gen =
           let gen' = do gen
                         emitExpr si' argh
-                        emit $ "movl %eax, " ++ stackValueAt si'
+                        emitStackSave si'
           in loop (si' - wordsize) argsTail gen'
 
-primitives :: [(String, FnGen)]
-primitives = unaryPrims ++ binaryPrims
+primitives :: Map String FnGen
+primitives = unaryPrims `union` binaryPrims
 
-unaryPrims :: [(String, FnGen)]
-unaryPrims = [ ("fxadd1"      , fxadd1)
-             , ("fxsub1"      , fxsub1)
-             , ("char->fixnum", charToFixNum)
-             , ("fixnum->char", fixNumToChar)
-             , ("fxlognot"    , fxLogNot)
-             , ("fixnum?"     , isFixnum)
-             , ("null?"       , isNull)
-             , ("not"         , notL)
-             , ("boolean?"    , isBoolean)
-             , ("char?"       , isChar)
-             , ("fxzero?"     , isFxZero)
-             ]
+unaryPrims :: Map String FnGen
+unaryPrims = fromList [ ("fxadd1"      , fxadd1)
+                      , ("fxsub1"      , fxsub1)
+                      , ("char->fixnum", charToFixNum)
+                      , ("fixnum->char", fixNumToChar)
+                      , ("fxlognot"    , fxLogNot)
+                      , ("fixnum?"     , isFixnum)
+                      , ("null?"       , isNull)
+                      , ("not"         , notL)
+                      , ("boolean?"    , isBoolean)
+                      , ("char?"       , isChar)
+                      , ("fxzero?"     , isFxZero)
+                      ]
 
-binaryPrims :: [(String, FnGen)]
-binaryPrims = [ ("fx+"      , fxPlus)
-              , ("fx-"      , fxMinus)
-              , ("fx*"      , fxTimes)
-              , ("fxlogand" , fxLogAnd)
-              , ("fxlogor"  , fxLogOr)
-              , ("fx="      , fxEq)
-              , ("fx<"      , fxLess)
-              , ("fx<="     , fxLessOrEq)
-              , ("fx>"      , fxGreater)
-              , ("fx>="     , fxGreaterOrEq)
-              ]
+binaryPrims :: Map String FnGen
+binaryPrims = fromList [ ("fx+"      , fxPlus)
+                       , ("fx-"      , fxMinus)
+                       , ("fx*"      , fxTimes)
+                       , ("fxlogand" , fxLogAnd)
+                       , ("fxlogor"  , fxLogOr)
+                       , ("fx="      , fxEq)
+                       , ("fx<"      , fxLess)
+                       , ("fx<="     , fxLessOrEq)
+                       , ("fx>"      , fxGreater)
+                       , ("fx>="     , fxGreaterOrEq)
+                       ]
 
 fxadd1 :: FnGen
 fxadd1 = UnaryFn $
