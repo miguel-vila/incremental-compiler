@@ -6,6 +6,7 @@ import Test.Hspec
 import Control.Exception (evaluate)
 import Control.Monad.Error.Class
 import Test.HUnit
+import TestUtils
 
 tabbed = (tab ++)
 
@@ -33,11 +34,6 @@ shouldEmit expr code =
   (compile expr) `shouldBe` (wrap code)
 
 type TestCase = (Expr, Code)
-
-binOp :: String -> Expr -> Expr -> Expr
-binOp name arg1 arg2 = FnApp name [arg1, arg2]
-
-(~>) = (,)
 
 fxPlusTests :: [TestCase]
 fxPlusTests =

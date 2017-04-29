@@ -5,7 +5,9 @@ data Expr = L Literal
           | If Expr Expr Expr
           | And [Expr]
           | Or [Expr]
-          | Let [Binding] Expr
+          | Let     [Binding] Expr
+          | LetStar [Binding] Expr
+          | VarRef VarName
           | NoOp
 
 data Literal = FixNum Integer
@@ -13,8 +15,10 @@ data Literal = FixNum Integer
              | Character Char
              | Nil
 
-data Binding = Binding { name :: String
-                       , value :: Expr
+type VarName = String
+
+data Binding = Binding { name :: VarName
+                       , expr :: Expr
                        }
 
 _False :: Expr
@@ -31,3 +35,6 @@ char = L . Character
 
 nil :: Expr
 nil = L Nil
+
+var :: String -> Expr
+var = VarRef

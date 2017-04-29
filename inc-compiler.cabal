@@ -34,7 +34,7 @@ test-suite inc-compiler-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
-  other-modules:       CompileAndRunSpec, EmitterSpec
+  other-modules:       CompileAndRunSpec, EmitterSpec, TestUtils
   build-depends:       base
                      , parsec
                      , inc-compiler

@@ -22,6 +22,8 @@ data FnGen = UnaryFn CodeGen
            | Predicate CodeGen
            | Comparison ComparisonType (Register -> CodeGen)
 
+type Environment = Map VarName StackIndex
+
 wordsize :: Integer
 wordsize = 4
 
@@ -31,8 +33,11 @@ initialState = 0
 initialStackIndex :: StackIndex
 initialStackIndex = - wordsize
 
+initialEnvironment :: Environment
+initialEnvironment = empty
+
 compile :: Expr -> Code
-compile = executeGen . wrapInEntryPoint . emitExpr initialStackIndex
+compile = executeGen . wrapInEntryPoint . emitExpr initialEnvironment initialStackIndex
 
 executeGen :: CodeGen -> Code
 executeGen codeGen = execWriter $ evalStateT codeGen initialState
@@ -86,38 +91,60 @@ emitBooleanByComparison compareType = do
 ifEqReturnTrue :: CodeGen
 ifEqReturnTrue = emitBooleanByComparison Eq
 
-emitExpr :: StackIndex -> Expr -> CodeGen
-emitExpr _ (L literal) =
+emitExpr :: Environment -> StackIndex -> Expr -> CodeGen
+emitExpr _ _ (L literal) =
   emitLiteral $ inmediateRepr literal
-emitExpr si (FnApp name args) =
+emitExpr env si (FnApp name args) =
   let (Just primitive) = lookup name primitives  -- @TODO handle this
-  in emitFnApp name si primitive args
-emitExpr si (If condition conseq altern) =
-  emitIf si condition conseq altern
-emitExpr si (And preds) =
-  emitAnd si preds
-emitExpr si (Or preds) =
-  emitOr si preds
---emitExpr si (Let bindings body) =
-emitExpr _ NoOp =
+  in emitFnApp name env si primitive args
+emitExpr env si (If condition conseq altern) =
+  emitIf env si condition conseq altern
+emitExpr env si (And preds) =
+  emitAnd env si preds
+emitExpr env si (Or preds) =
+  emitOr env si preds
+emitExpr env si (Let bindings body) =
+  emitLet env si bindings body
+emitExpr env si (LetStar bindings body) =
+  emitLetStar env si bindings body
+emitExpr env _ (VarRef varName) =
+  let Just si = lookup varName env -- @TODO handle this
+  in emitStackLoad si
+emitExpr _ _ NoOp =
   noop
 
-emitFnApp :: String -> StackIndex -> FnGen -> [Expr] -> CodeGen
-emitFnApp fnName si fnGen args =
+emitLet :: Environment -> StackIndex -> [Binding] -> Expr -> CodeGen
+emitLet env si bindings body = emitLet' env si bindings
+  where emitLet' env' si' [] = emitExpr env' si' body
+        emitLet' env' si' (binding : bindingsTail) =
+          do emitExpr env si' (expr binding)
+             emitStackSave si'
+             emitLet' (insert (name binding) si' env') (nextStackIndex si') bindingsTail
+
+emitLetStar :: Environment -> StackIndex -> [Binding] -> Expr -> CodeGen
+emitLetStar env si bindings body = emitLetStar' env si bindings
+  where emitLetStar' env' si' [] = emitExpr env' si' body
+        emitLetStar' env' si' (binding : bindingsTail) =
+          do emitExpr env' si' (expr binding) -- Only difference with `emitLet` is in this line (the first argument)
+             emitStackSave si'
+             emitLetStar' (insert (name binding) si' env') (nextStackIndex si') bindingsTail
+
+emitFnApp :: String -> Environment -> StackIndex -> FnGen -> [Expr] -> CodeGen
+emitFnApp fnName env si fnGen args =
   case fnGen of
     UnaryFn codeGen -> do
-      emitArgs si args -- @TODO check # of args
+      emitArgs env si args -- @TODO check # of args
       codeGen
     BinaryFn codeGen ->
       if elem fnName canBeOptimized
-      then emitBinaryFnOpt codeGen args si
-      else emitBinaryFnApp codeGen args si
+      then emitBinaryFnOpt codeGen args env si
+      else emitBinaryFnApp codeGen args env si
     Predicate predicate -> do
-      emitArgs si args -- @TODO check # of args
+      emitArgs env si args -- @TODO check # of args
       predicate
       ifEqReturnTrue
     Comparison compareType compareBody -> do
-      emitArgs si args -- @TODO check # of args
+      emitArgs env si args -- @TODO check # of args
       compareBody (stackValueAt si)
       emitBooleanByComparison compareType
 
@@ -125,38 +152,44 @@ canBeOptimized :: [String]
 canBeOptimized = [ "fx+"
                  ]
 
-emitBinaryFnApp :: (Register -> Register -> CodeGen) -> [Expr] -> StackIndex -> CodeGen
-emitBinaryFnApp codeGen args si = do
-    emitArgs si args
+emitBinaryFnApp :: (Register -> Register -> CodeGen) -> [Expr] -> Environment -> StackIndex -> CodeGen
+emitBinaryFnApp codeGen args env si = do
+    emitArgs env si args
     codeGen (stackValueAt si) eax
 
-emitBinaryFnOpt :: (Register -> Register -> CodeGen) -> [Expr] -> StackIndex -> CodeGen
-emitBinaryFnOpt codeGen args si = case args of
+emitBinaryFnOpt :: (Register -> Register -> CodeGen) -> [Expr] -> Environment -> StackIndex -> CodeGen
+emitBinaryFnOpt codeGen args env si = case args of
   [L arg1, arg2] -> do
-    emitExpr si arg2
+    emitExpr env si arg2
     codeGen ("$" ++ (show $ inmediateRepr arg1)) eax
   [arg1, L arg2] -> do
-    emitExpr si arg1
+    emitExpr env si arg1
     codeGen ("$" ++ (show $ inmediateRepr arg2)) eax
   _              ->
-    emitBinaryFnApp codeGen args si
+    emitBinaryFnApp codeGen args env si
 
 movl :: Register -> Register -> CodeGen
 movl = binOp "movl"
 
+emitStackLoad :: StackIndex -> CodeGen
+emitStackLoad si  = movl (stackValueAt si) eax
+
 emitStackSave :: StackIndex -> CodeGen
 emitStackSave si = movl eax (stackValueAt si)
 
-emitArgs :: StackIndex -> [Expr] -> CodeGen
-emitArgs si args = loop si args noop
+nextStackIndex :: StackIndex -> StackIndex
+nextStackIndex si = si - wordsize
+
+emitArgs :: Environment -> StackIndex -> [Expr] -> CodeGen
+emitArgs env si args = loop si args noop
   where loop si' [arg]           gen =
           do gen
-             emitExpr si' arg
+             emitExpr env si' arg
         loop si' (argh:argsTail) gen =
           let gen' = do gen
-                        emitExpr si' argh
+                        emitExpr env si' argh
                         emitStackSave si'
-          in loop (si' - wordsize) argsTail gen'
+          in loop (nextStackIndex si') argsTail gen'
 
 primitives :: Map String FnGen
 primitives = unaryPrims `union` binaryPrims
@@ -296,8 +329,8 @@ uniqueLabel = do
   modify (+1)
   return $ "L_" ++ show s
 
-emitIf :: StackIndex -> Expr -> Expr -> Expr -> CodeGen
-emitIf si condition conseq altern = do
+emitIf :: Environment -> StackIndex -> Expr -> Expr -> Expr -> CodeGen
+emitIf env si condition conseq altern = do
   alternLabel <- uniqueLabel
   endLabel    <- uniqueLabel
   let emitIfFor :: CodeGen -> CodeGen
@@ -319,27 +352,27 @@ emitIf si condition conseq altern = do
                 emitAndJump (Comparison comparisonType fnCode)  = do
                   fnCode (stackValueAt si)
                   ifComparisonJumpTo (opposing comparisonType) alternLabel
-            in do emitArgs si args
+            in do emitArgs env si args
                   emitAndJump primitive
-          _ -> do emitExpr si condition
+          _ -> do emitExpr env si condition
                   compareTo falseValue
                   ifEqJumpTo alternLabel
   evalCondAndJumpToAlternIfFalse
-  emitExpr si conseq
+  emitExpr env si conseq
   jumpTo endLabel
   emitLabel alternLabel
-  emitExpr si altern
+  emitExpr env si altern
   emitLabel endLabel
 
-emitAnd :: StackIndex -> [Expr] -> CodeGen
-emitAnd si []            = emitExpr si _False
-emitAnd si [test]        = emitExpr si test
-emitAnd si (test : rest) = emitIf si test (And rest) _False
+emitAnd :: Environment -> StackIndex -> [Expr] -> CodeGen
+emitAnd env si []            = emitExpr env si _False
+emitAnd env si [test]        = emitExpr env si test
+emitAnd env si (test : rest) = emitIf env si test (And rest) _False
 
-emitOr :: StackIndex -> [Expr] -> CodeGen
-emitOr si []            = emitExpr si _True
-emitOr si [test]        = emitExpr si test
-emitOr si (test : rest) = emitIf si test NoOp (Or rest)
+emitOr :: Environment -> StackIndex -> [Expr] -> CodeGen
+emitOr env si []            = emitExpr env si _True
+emitOr env si [test]        = emitExpr env si test
+emitOr env si (test : rest) = emitIf env si test NoOp (Or rest)
 
 type StackIndex = Integer
 

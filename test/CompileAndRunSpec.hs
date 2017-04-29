@@ -3,6 +3,7 @@ module CompileAndRunSpec(compileAndRunSpec) where
 import Expr
 import Lib(compileAndExecute)
 import Test.Hspec
+import TestUtils
 
 whenRunShouldPrint :: Expr -> String -> Expectation
 whenRunShouldPrint source expectedOutput =
@@ -11,30 +12,30 @@ whenRunShouldPrint source expectedOutput =
 type TestCase = (Expr, String)
 
 intTests :: [TestCase]
-intTests = [ ( fx 42, "42")
-           , ( fx 1, "1")
-           , ( fx $ -1, "-1")
-           , ( fx 10, "10")
-           , ( fx $ -10, "-10")
-           , ( fx 536870911, "536870911")
-           , ( fx $ -536870911, "-536870911")
+intTests = [ (fx 42) ~> "42"
+           , (fx 1) ~> "1"
+           , (fx $ -1) ~> "-1"
+           , (fx 10) ~> "10"
+           , (fx $ -10) ~> "-10"
+           , (fx 536870911) ~> "536870911"
+           , (fx $ -536870911) ~> "-536870911"
            ]
 
 boolTests :: [TestCase]
-boolTests = [ ( _False , "#f" )
-            , ( _True , "#t" )
+boolTests = [ _False ~> "#f"
+            , _True ~> "#t"
             ]
 
 charTests :: [TestCase]
-charTests = [ ( char 'A', "#\\A" )
-            , ( char 'x', "#\\x" )
-            , ( char '1', "#\\1" )
-            , ( char '-', "#\\-" )
-            , ( char '~', "#\\~" )
-            , ( char '*', "#\\*" )
-            , ( char '.', "#\\." )
-            , ( char '\t', "#\\\t" )
-            , ( char '"', "#\\\"" )
+charTests = [ char 'A' ~> "#\\A"
+            , char 'x' ~> "#\\x"
+            , char '1' ~> "#\\1"
+            , char '-' ~> "#\\-"
+            , char '~' ~> "#\\~"
+            , char '*' ~> "#\\*"
+            , char '.' ~> "#\\."
+            , char '\t' ~> "#\\\t"
+            , char '"' ~> "#\\\""
             ]
 
 unaryPrimitiveTests :: [TestCase]
@@ -120,48 +121,49 @@ unaryPrimitiveTests = [ (FnApp "fxadd1" [fx 1], "2")
                       ]
 
 fxPlusTests :: [TestCase]
-fxPlusTests = [ (FnApp "fx+" [fx 3, fx 1], "4")
-              , (FnApp "fx+" [fx $ -1, fx 1], "0")
-              , (FnApp "fx+" [fx $ 536870911, fx $ -1], "536870910")
-              , (FnApp "fx+" [fx $ 536870910, fx 1], "536870911")
-              , (FnApp "fx+" [fx $ -536870912, fx 1], "-536870911")
-              , (FnApp "fx+" [fx $ -536870911, fx $ -1], "-536870912")
-              , (FnApp "fx+" [fx $ 536870911, fx $ -536870912], "-1")
-              , (FnApp "fx+" [FnApp "fx+" [fx 3, fx 5], fx 2], "10")
-              , (FnApp "fx+" [FnApp "fx+" [fx 3, fx 5], FnApp "fx+" [fx 7, fx 12]], "27")
-              , (FnApp "fx+" [FnApp "fx+" [FnApp "fx+" [fx 9, fx 15], fx 5], FnApp "fx+" [fx 7, fx 12]], "48")
+fxPlusTests = [ binOp "fx+" (fx 3) (fx 1) ~> "4"
+              , binOp "fx+" (fx $ -1) (fx 1) ~> "0"
+              , binOp "fx+" (fx $ 536870911) (fx $ -1) ~> "536870910"
+              , binOp "fx+" (fx $ 536870910) (fx 1) ~> "536870911"
+              , binOp "fx+" (fx $ -536870912) (fx 1) ~> "-536870911"
+              , binOp "fx+" (fx $ -536870911) (fx $ -1) ~> "-536870912"
+              , binOp "fx+" (fx $ 536870911) (fx $ -536870912) ~> "-1"
+              , binOp "fx+" (binOp "fx+" (fx 3) (fx 5)) (fx 2) ~> "10"
+              , binOp "fx+" (binOp "fx+" (fx 3) (fx 5)) (binOp "fx+" (fx 7) (fx 12)) ~> "27"
+              , binOp "fx+" (binOp "fx+" (binOp "fx+" (fx 9) (fx 15)) (fx 5)) (binOp "fx+" (fx 7) (fx 12)) ~> "48"
               ]
 
 fxMinusTests :: [TestCase]
-fxMinusTests = [ (FnApp "fx-" [fx 5, fx 1], "4")
-               , (FnApp "fx-" [fx 536870910    , fx $ -1] , "536870911")
-               , (FnApp "fx-" [fx 536870911    , fx 1] , "536870910")
-               , (FnApp "fx-" [fx $ -536870911 , fx 1] , "-536870912")
-               , (FnApp "fx-" [fx $ -536870912 , fx $ -1] , "-536870911")
-               , (FnApp "fx-" [fx 1            , fx 536870911] , "-536870910")
-               , (FnApp "fx-" [fx $ -1         , fx 536870911] , "-536870912")
-               , (FnApp "fx-" [fx 1            , fx $ -536870910] , "536870911")
-               , (FnApp "fx-" [fx $ -1         , fx $ -536870912] , "536870911")
-               , (FnApp "fx-" [fx 536870911    , fx 536870911] , "0")
-               , (FnApp "fx-" [fx 536870911    , fx $ -536870912] , "-1")
-               , (FnApp "fx-" [fx $ -536870911 , fx $ -536870912] , "1")
+fxMinusTests = [ binOp "fx-" (fx 5)             (fx 1) ~> "4"
+               , binOp "fx-" (fx 536870910)     (fx $ -1)  ~> "536870911"
+               , binOp "fx-" (fx 536870911)     (fx 1)  ~> "536870910"
+               , binOp "fx-" (fx $ -536870911)  (fx 1)  ~> "-536870912"
+               , binOp "fx-" (fx $ -536870912)  (fx $ -1)  ~> "-536870911"
+               , binOp "fx-" (fx 1)             (fx 536870911)  ~> "-536870910"
+               , binOp "fx-" (fx $ -1)          (fx 536870911)  ~> "-536870912"
+               , binOp "fx-" (fx 1)             (fx $ -536870910)  ~> "536870911"
+               , binOp "fx-" (fx $ -1)          (fx $ -536870912)  ~> "536870911"
+               , binOp "fx-" (fx 536870911)     (fx 536870911)  ~> "0"
+               , binOp "fx-" (fx 536870911)     (fx $ -536870912)  ~> "-1"
+               , binOp "fx-" (fx $ -536870911)  (fx $ -536870912)  ~> "1"
                ]
 
 fxTimesTests :: [TestCase]
-fxTimesTests = [ (FnApp "fx*" [fx 2 , fx 3], "6")
-               , (FnApp "fx*" [fx $ -2 , fx 3], "-6")
-               , (FnApp "fx*" [fx 0 , fx 3], "0")
-               , (FnApp "fx*"
-                  [FnApp "fx*"
-                    [FnApp "fx*"
-                      [FnApp "fx*"
-                       [FnApp "fx*" [fx 2, fx 3], fx 4],
-                        fx 5
-                      ],
-                      fx 6
-                    ],
-                    fx 7
-                  ], "5040")
+fxTimesTests = [ binOp "fx*" (fx 2) (fx 3) ~> "6"
+               , binOp "fx*" (fx $ -2) (fx 3) ~> "-6"
+               , binOp "fx*" (fx 0) (fx 3) ~> "0"
+               , binOp "fx*"
+                  (binOp "fx*"
+                    (binOp "fx*"
+                      (binOp "fx*"
+                       (binOp "fx*"
+                        (fx 2)
+                        (fx 3))
+                       (fx 4))
+                      (fx 5))
+                    (fx 6))
+                  (fx 7)
+                  ~> "5040"
                ]
 
 fxLogAndTests :: [TestCase]
@@ -226,6 +228,58 @@ ifComparisonTests = [ (If (FnApp "fx<" [fx 1, fx 2]) (fx 4) (fx 7), "4")
                     , (If (FnApp "fx>=" [ fx 13, fx 12 ]) (fx 13) (fx 14) , "13" )
                     ]
 
+letExpressionTests :: [TestCase]
+letExpressionTests =
+  [ Let [Binding "x" (fx 3)]
+    (var "x")
+    ~> "3"
+  , Let [Binding "x" (fx 3)]
+    (binOp "fx+" (fx 7) (var "x"))
+    ~> "10"
+  ,Let [Binding "x" (fx 5), Binding "y" (fx 7)]
+   (binOp "fx+" (var "x") (var "y"))
+    ~> "12"
+  , Let [Binding "x" (fx 3), Binding "y" (binOp "fx+" (fx 4) (fx 7))]
+    (binOp "fx-" (var "y") (var "x"))
+    ~> "8"
+  , Let [Binding "x" (fx 3), Binding "y" (fx 4), Binding "z" (fx 7)]
+    (binOp "fx-" (binOp "fx+" (var "z") (var "y")) (var "x"))
+    ~> "8"
+  , Let [Binding "x" (fx 3)]
+    (Let [Binding "x" (binOp "fx+" (var "x") (var "x"))]
+     (var "x"))
+    ~> "6"
+  , Let [Binding "x" (fx 1)]
+    (Let [Binding "x" (binOp "fx+" (fx 3) (fx 4))]
+     (var "x"))
+    ~> "7"
+  , Let [Binding "x" (binOp "fx+" (fx 1) (fx 2))]
+    (Let [Binding "x" (binOp "fx+" (var "x") (fx 4))]
+     (var "x"))
+    ~> "7"
+    , Let [Binding "x" (fx 12)]
+      (Let [Binding "x" (binOp "fx+" (var "x") (var "x"))]
+       (Let [Binding "x" (binOp "fx+" (var "x") (var "x"))]
+        (Let [Binding "x" (binOp "fx+" (var "x") (var "x"))]
+         (binOp "fx+" (var "x") (var "x"))
+        )
+       )
+      )
+      ~> "192"
+    , Let [Binding "x" (fx 1)]
+      (Let [Binding "x" (binOp "fx+" (var "x") (fx 1)), Binding "y" (binOp "fx+" (var "x") (fx 1))]
+       (var "y"))
+      ~> "2"
+  ]
+
+letStarExpressionTests :: [TestCase]
+letStarExpressionTests =
+  [ Let [Binding "x" (fx 1)]
+      (LetStar [Binding "x" (binOp "fx+" (var "x") (fx 1)), Binding "y" (binOp "fx+" (var "x") (fx 1))]
+       (var "y"))
+      ~> "3"
+  ]
+
 executeTestCases :: [TestCase] -> Expectation
 executeTestCases = mapM_ (\(source, expectedOutput) -> whenRunShouldPrint source expectedOutput)
 
@@ -245,3 +299,5 @@ compileAndRunSpec = describe "CompileAndExecute" $ do
   it "evaluates fx< invocations" $ executeTestCases fxLessTests
   it "evaluates fx<= invocations" $ executeTestCases fxLessOrEqTests
   it "evaluates if comparisons expressions" $ executeTestCases ifComparisonTests
+  it "evaluates let expressions" $ executeTestCases letExpressionTests
+  it "evaluates let* expressions" $ executeTestCases letStarExpressionTests
