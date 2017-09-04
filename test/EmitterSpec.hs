@@ -12,14 +12,14 @@ tabbed = (tab ++)
 
 wrap :: Code -> Code
 wrap code =
-  [ tabbed ".text"
-  , tabbed ".globl L_scheme_entry"
-  , tabbed ".type L_scheme_entry, @function"
+  [ ".text"
+  , ".globl L_scheme_entry"
+  , ".type L_scheme_entry, @function"
   , "L_scheme_entry:"
   ] ++ code ++ [
     tabbed"ret"
-  , tabbed ".globl scheme_entry"
-  , tabbed ".type scheme_entry, @function"
+  , ".globl scheme_entry"
+  , ".type scheme_entry, @function"
   , "scheme_entry:"
   , tabbed "mov %esp, %ecx"
   , tabbed "mov 4(%esp), %esp"
@@ -31,7 +31,7 @@ wrap code =
 
 shouldEmit :: Expr -> Code -> Expectation
 shouldEmit expr code =
-  (compile expr) `shouldBe` (wrap code)
+  (compile $ Expr expr) `shouldBe` (wrap code)
 
 type TestCase = (Expr, Code)
 

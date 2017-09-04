@@ -5,8 +5,9 @@ import Expr
 
 main :: IO ()
 main = do
-  let source = Let [Binding "x" (fx 5), Binding "y" (fx 7)] (FnApp "fx+" [(var "x"), (var "y")])
-  --let source = FixNum $ -1
-  --output <- compileAndExecute source
-  let output = compileCode source
-  putStrLn output
+  let add2 = LambdaBinding "add2" $ Lambda ["x"] (FnApp "fx+" [fx 2, VarRef "x"])
+      source = LetRec [add2] (UserFnApp "add2" [fx 7])
+      --let source = FixNum $ -1
+      --output <- compileAndExecute source
+      output = compileCode source
+    in putStrLn output

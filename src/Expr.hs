@@ -1,7 +1,18 @@
 module Expr where
 
+type ParamName = String
+
+type FunctionName = String
+
+data Lambda = Lambda { params :: [ParamName]
+                     , body   :: Expr
+                     }
+
+data Program = Expr Expr
+             | LetRec [LambdaBinding] Expr
+
 data Expr = L Literal
-          | FnApp String [Expr]
+          | FnApp FunctionName [Expr]
           | If Expr Expr Expr
           | And [Expr]
           | Or [Expr]
@@ -9,6 +20,7 @@ data Expr = L Literal
           | LetStar [Binding] Expr
           | VarRef VarName
           | NoOp
+          | UserFnApp FunctionName [Expr]
 
 data Literal = FixNum Integer
              | Boolean Bool
@@ -16,6 +28,10 @@ data Literal = FixNum Integer
              | Nil
 
 type VarName = String
+
+data LambdaBinding = LambdaBinding { functionName :: String
+                                   , lambda       :: Lambda
+                                   }
 
 data Binding = Binding { name :: VarName
                        , expr :: Expr

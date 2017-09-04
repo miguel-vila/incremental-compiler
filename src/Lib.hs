@@ -10,7 +10,7 @@ import System.Directory
 import Expr
 import Emitter
 
-compileAndExecute :: Expr -> IO String
+compileAndExecute :: Program -> IO String
 compileAndExecute source = do
   let programText = compileCode source
   writeFile "tmp-program.s" programText
@@ -22,5 +22,5 @@ compileAndExecute source = do
   mapM_ removeFile ["tmp-program.s", "tmp-program"]
   return output
 
-compileCode :: Expr -> String
+compileCode :: Program -> String
 compileCode = unlines . compile
