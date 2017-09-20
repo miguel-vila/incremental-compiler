@@ -6,16 +6,17 @@ import MagicNumbers
 import Expr
 import InmediateRepr
 import Control.Monad.State.Lazy
-import Data.HashMap
+import Data.HashMap hiding (map)
+import Control.Monad.Reader
 
 type Code = [String]
 
 -- The id for the function labels
 type CodeGenState = Int
 
-type GenState = StateT CodeGenState (Writer Code)
+type GenReaderState = StateT CodeGenState (ReaderT (StackIndex, Environment) (Writer Code))
 
-type CodeGen = GenState ()
+type CodeGen = GenReaderState ()
 
 data FnGen = UnaryFn CodeGen
            | BinaryFn (Register -> Register -> CodeGen)
@@ -47,7 +48,9 @@ compile :: Program -> Code
 compile = executeGen . emitProgram
 
 executeGen :: CodeGen -> Code
-executeGen codeGen = execWriter $ evalStateT codeGen initialState
+executeGen codeGen = execWriter $
+  runReaderT (evalStateT codeGen initialState)
+             (initialStackIndex, initialEnvironment)
 
 tab :: String
 tab = "    "
@@ -98,100 +101,128 @@ emitBooleanByComparison compareType = do
 ifEqReturnTrue :: CodeGen
 ifEqReturnTrue = emitBooleanByComparison Eq
 
-emitExpr :: Environment -> StackIndex -> Expr -> CodeGen
-emitExpr _ _ (L literal) =
-  emitLiteral $ inmediateRepr literal
-emitExpr env si (FnApp name args) =
-  let (Just primitive) = lookup name primitives  -- @TODO handle this
-  in emitFnApp name env si primitive args
-emitExpr env si (If condition conseq altern) =
-  emitIf env si condition conseq altern
-emitExpr env si (And preds) =
-  emitAnd env si preds
-emitExpr env si (Or preds) =
-  emitOr env si preds
-emitExpr env si (Let bindings body) =
-  emitLet env si bindings body
-emitExpr env si (LetStar bindings body) =
-  emitLetStar env si bindings body
-emitExpr env _ (VarRef varName) =
+getVarIndex :: VarName -> GenReaderState StackIndex
+getVarIndex varName = do
+  (_, env) <- ask
   let Just si = lookup varName (varEnv env) -- @TODO handle this
-  in emitStackLoad si
-emitExpr env si (UserFnApp fnName args) =
-  emitUserFnApp env si fnName args
-emitExpr _ _ NoOp =
+  return si
+
+emitExpr :: Expr -> CodeGen
+emitExpr (L literal) =
+  emitLiteral $ inmediateRepr literal
+emitExpr (FnApp name args) =
+  let (Just primitive) = lookup name primitives  -- @TODO handle this
+  in emitFnApp name primitive args
+emitExpr (If condition conseq altern) =
+  emitIf condition conseq altern
+emitExpr (And preds) =
+  emitAnd preds
+emitExpr (Or preds) =
+  emitOr preds
+emitExpr (Let bindings body) =
+  emitLet bindings body
+emitExpr (LetStar bindings body) =
+  emitLetStar bindings body
+emitExpr (VarRef varName) = do
+  si <- getVarIndex varName
+  emitStackLoad si
+emitExpr (UserFnApp fnName args) =
+  emitUserFnApp fnName args
+emitExpr NoOp =
   noop
 
 insertVarBinding :: VarName -> StackIndex -> Environment -> Environment
 insertVarBinding varName si env =
   env { varEnv = insert varName si (varEnv env) }
 
-emitAdjustBase :: Integer -> CodeGen
-emitAdjustBase n =
-  emit $ "addl $" ++ show n ++ ", %esp"
+emitAdjustBase :: (StackIndex -> Integer) -> CodeGen
+emitAdjustBase f = do
+  (si, _) <- ask
+  emit $ "addl $" ++ show (f si) ++ ", %esp"
 
-emitUserFnApp :: Environment -> StackIndex -> FunctionName -> [Expr] -> CodeGen
-emitUserFnApp env si fnName args =
+getFnLabel :: FunctionName -> GenReaderState Label
+getFnLabel fnName = do
+  (_, env) <- ask
   let Just label = lookup fnName (fnEnv env) -- @TODO handle this
-  in do emitArgs env (nextStackIndex si) args
-        emitAdjustBase (si + wordsize)
-        emit $ "call " ++ label
-        emitAdjustBase (- si - wordsize)
+  return label
 
-emitLet :: Environment -> StackIndex -> [Binding] -> Expr -> CodeGen
-emitLet env si bindings body = emitLet' env si bindings
-  where emitLet' env' si' [] = emitExpr env' si' body
-        emitLet' env' si' (binding : bindingsTail) =
-          do emitExpr env si' (expr binding)
-             emitStackSave si'
-             emitLet' (insertVarBinding (name binding) si' env') (nextStackIndex si') bindingsTail
+withNextIndex :: GenReaderState a -> GenReaderState a
+withNextIndex =
+  local (\(si,env) -> (nextStackIndex si, env))
 
-emitLetStar :: Environment -> StackIndex -> [Binding] -> Expr -> CodeGen
-emitLetStar env si bindings body = emitLetStar' env si bindings
-  where emitLetStar' env' si' [] = emitExpr env' si' body
-        emitLetStar' env' si' (binding : bindingsTail) =
-          do emitExpr env' si' (expr binding) -- Only difference with `emitLet` is in this line (the first argument)
-             emitStackSave si'
-             emitLetStar' (insertVarBinding (name binding) si' env') (nextStackIndex si') bindingsTail
+emitUserFnApp :: FunctionName -> [Expr] -> CodeGen
+emitUserFnApp fnName args = do
+  label <- getFnLabel fnName
+  withNextIndex (emitArgs args)
+  emitAdjustBase (\si -> si + wordsize)
+  emit $ "call " ++ label
+  emitAdjustBase (\si -> - si - wordsize)
 
-emitFnApp :: String -> Environment -> StackIndex -> FnGen -> [Expr] -> CodeGen
-emitFnApp fnName env si fnGen args =
+withEnv :: Environment -> GenReaderState a -> GenReaderState a
+withEnv env =
+  local (\(si,_) -> (si,env))
+
+emitLet :: [Binding] -> Expr -> CodeGen
+emitLet bindings body = do
+  (_, env) <- ask
+  emitLet' bindings env
+  where emitLet' [] env = withEnv env $ emitExpr body
+        emitLet' (binding : bindingsTail) env =
+          do emitExpr (expr binding)
+             emitStackSave
+             (si,_) <- ask
+             let nextEnv = insertVarBinding (name binding) si env
+             withNextIndex $ emitLet' bindingsTail nextEnv
+
+emitLetStar :: [Binding] -> Expr -> CodeGen
+emitLetStar bindings body = emitLetStar' bindings
+  where emitLetStar' [] = emitExpr body
+        emitLetStar' (binding : bindingsTail) =
+          do emitExpr (expr binding)
+             emitStackSave
+             let withLocalSiEnv = local (\(si,env) -> (nextStackIndex si, insertVarBinding (name binding) si env) )
+             withLocalSiEnv $ emitLetStar' bindingsTail
+
+emitFnApp :: FunctionName -> FnGen -> [Expr] -> CodeGen
+emitFnApp fnName fnGen args =
   case fnGen of
     UnaryFn codeGen -> do
-      emitArgs env si args -- @TODO check # of args
+      emitArgs args -- @TODO check # of args
       codeGen
     BinaryFn codeGen ->
       if elem fnName canBeOptimized
-      then emitBinaryFnOpt codeGen args env si
-      else emitBinaryFnApp codeGen args env si
+      then emitBinaryFnOpt codeGen args
+      else emitBinaryFnApp codeGen args
     Predicate predicate -> do
-      emitArgs env si args -- @TODO check # of args
+      emitArgs args -- @TODO check # of args
       predicate
       ifEqReturnTrue
     Comparison compareType compareBody -> do
-      emitArgs env si args -- @TODO check # of args
-      compareBody (stackValueAt si)
+      emitArgs args -- @TODO check # of args
+      sv <- stackValueAtIndex
+      compareBody sv
       emitBooleanByComparison compareType
 
 canBeOptimized :: [String]
 canBeOptimized = [ "fx+"
                  ]
 
-emitBinaryFnApp :: (Register -> Register -> CodeGen) -> [Expr] -> Environment -> StackIndex -> CodeGen
-emitBinaryFnApp codeGen args env si = do
-    emitArgs env si args
-    codeGen (stackValueAt si) eax
+emitBinaryFnApp :: (Register -> Register -> CodeGen) -> [Expr] -> CodeGen
+emitBinaryFnApp codeGen args = do
+    emitArgsWithoutLastSave args
+    sv <- stackValueAtIndex
+    codeGen sv eax
 
-emitBinaryFnOpt :: (Register -> Register -> CodeGen) -> [Expr] -> Environment -> StackIndex -> CodeGen
-emitBinaryFnOpt codeGen args env si = case args of
+emitBinaryFnOpt :: (Register -> Register -> CodeGen) -> [Expr] -> CodeGen
+emitBinaryFnOpt codeGen args = case args of
   [L arg1, arg2] -> do
-    emitExpr env si arg2
+    emitExpr arg2
     codeGen ("$" ++ (show $ inmediateRepr arg1)) eax
   [arg1, L arg2] -> do
-    emitExpr env si arg1
+    emitExpr arg1
     codeGen ("$" ++ (show $ inmediateRepr arg2)) eax
   _              ->
-    emitBinaryFnApp codeGen args env si
+    emitBinaryFnApp codeGen args
 
 movl :: Register -> Register -> CodeGen
 movl = binOp "movl"
@@ -199,21 +230,33 @@ movl = binOp "movl"
 emitStackLoad :: StackIndex -> CodeGen
 emitStackLoad si  = movl (stackValueAt si) eax
 
-emitStackSave :: StackIndex -> CodeGen
-emitStackSave si = movl eax (stackValueAt si)
+emitStackSave :: CodeGen
+emitStackSave = do
+  sv <- stackValueAtIndex
+  movl eax sv
 
 nextStackIndex :: StackIndex -> StackIndex
 nextStackIndex si = si - wordsize
 
-emitArgs :: Environment -> StackIndex -> [Expr] -> CodeGen
-emitArgs env si args = loop si args noop
-  where loop _   []              gen =
-          gen
-        loop si' (argh:argsTail) gen =
-          let gen' = do gen
-                        emitExpr env si' argh
-                        emitStackSave si'
-          in loop (nextStackIndex si') argsTail gen'
+emitArgs :: [Expr] -> CodeGen
+emitArgs args = loop args
+  where loop []              =
+          noop
+        loop (argh:argsTail) = do
+          emitExpr argh
+          emitStackSave
+          withNextIndex (loop argsTail)
+
+emitArgsWithoutLastSave :: [Expr] -> CodeGen
+emitArgsWithoutLastSave args = loop args
+  where loop [] =
+          noop
+        loop [last] =
+          emitExpr last
+        loop (argh:argsTail) = do
+          emitExpr argh
+          emitStackSave
+          withNextIndex (loop argsTail)
 
 primitives :: Map String FnGen
 primitives = unaryPrims `union` binaryPrims
@@ -347,20 +390,20 @@ fxLogNot = UnaryFn $ do
   emit "sar $2, %eax"
   emit "sal $2, %eax"
 
-uniqueLabel :: GenState Label
+uniqueLabel :: GenReaderState Label
 uniqueLabel = do
   s <- get
   modify (+1)
   return $ "L_" ++ show s
 
-uniqueLambdaLabel :: String -> GenState Label
+uniqueLambdaLabel :: String -> GenReaderState Label
 uniqueLambdaLabel fnName = do
   s <- get
   modify (+1)
   return $ "Lambda_" ++ show s
 
-emitIf :: Environment -> StackIndex -> Expr -> Expr -> Expr -> CodeGen
-emitIf env si condition conseq altern = do
+emitIf :: Expr -> Expr -> Expr -> CodeGen
+emitIf condition conseq altern = do
   alternLabel <- uniqueLabel
   endLabel    <- uniqueLabel
   let emitIfFor :: CodeGen -> CodeGen
@@ -374,40 +417,47 @@ emitIf env si condition conseq altern = do
             let (Just primitive) = lookup fnName primitives  -- @TODO handle this
                 emitAndJump (UnaryFn fnCode) =
                   emitIfFor fnCode
-                emitAndJump (BinaryFn fnCode) =
-                  emitIfFor $ fnCode (stackValueAt si) eax
+                emitAndJump (BinaryFn fnCode) = do
+                  sv <- stackValueAtIndex
+                  emitIfFor $ fnCode sv eax
                 emitAndJump (Predicate predicateCode) = do
                   predicateCode
                   ifNotEqJumpTo alternLabel
                 emitAndJump (Comparison comparisonType fnCode)  = do
-                  fnCode (stackValueAt si)
+                  sv <- stackValueAtIndex
+                  fnCode sv
                   ifComparisonJumpTo (opposing comparisonType) alternLabel
-            in do emitArgs env si args
+            in do emitArgs args
                   emitAndJump primitive
-          _ -> do emitExpr env si condition
+          _ -> do emitExpr condition
                   compareTo falseValue
                   ifEqJumpTo alternLabel
   evalCondAndJumpToAlternIfFalse
-  emitExpr env si conseq
+  emitExpr conseq
   jumpTo endLabel
   emitLabel alternLabel
-  emitExpr env si altern
+  emitExpr altern
   emitLabel endLabel
 
-emitAnd :: Environment -> StackIndex -> [Expr] -> CodeGen
-emitAnd env si []            = emitExpr env si _False
-emitAnd env si [test]        = emitExpr env si test
-emitAnd env si (test : rest) = emitIf env si test (And rest) _False
+emitAnd :: [Expr] -> CodeGen
+emitAnd []            = emitExpr _False
+emitAnd [test]        = emitExpr test
+emitAnd (test : rest) = emitIf test (And rest) _False
 
-emitOr :: Environment -> StackIndex -> [Expr] -> CodeGen
-emitOr env si []            = emitExpr env si _True
-emitOr env si [test]        = emitExpr env si test
-emitOr env si (test : rest) = emitIf env si test NoOp (Or rest)
+emitOr :: [Expr] -> CodeGen
+emitOr []            = emitExpr _True
+emitOr [test]        = emitExpr test
+emitOr (test : rest) = emitIf test NoOp (Or rest)
 
 type StackIndex = Integer
 
 stackValueAt :: StackIndex -> String
-stackValueAt si = show si ++ "(%esp)"
+stackValueAt si = (show si) ++ "(%esp)"
+
+stackValueAtIndex :: GenReaderState String
+stackValueAtIndex = do
+  (si,_) <- ask
+  return $ stackValueAt si
 
 type Inst = String
 type Op = String
@@ -493,28 +543,35 @@ insertFnBinding :: FnName -> Label -> Environment -> Environment
 insertFnBinding fnName label env =
   env { fnEnv = insert fnName label (fnEnv env) }
 
-emitLambda :: Label -> Environment -> StackIndex -> Lambda -> CodeGen
-emitLambda label env si lmb = do
+emitLambda :: Label -> Lambda -> CodeGen
+emitLambda label lmb = do
   emitLabel label
-  emitParams env si (params lmb)
-  where emitParams env' si' [] = do
-          emitExpr env' si' (body lmb)
+  emitParams (params lmb)
+  where emitParams [] = do
+          emitExpr (body lmb)
           emit "ret"
-        emitParams env' si' (arg:restOfArgs) =
-          emitParams (insertVarBinding arg si' env') (nextStackIndex si') restOfArgs
+        emitParams (arg:restOfArgs) = do
+          let withLocalSiEnv = local (\(si,env) -> (nextStackIndex si, insertVarBinding arg si env) )
+          withLocalSiEnv $ emitParams restOfArgs
 
+-- @TODO whole function is very ugly, refactor!
 emitLetRec :: [LambdaBinding] -> Expr -> CodeGen
 emitLetRec bindings body = do
-  env <- foldM emitLambdaBinding initialEnvironment bindings
-  wrapInEntryPoint $ emitExpr env si body
-  where si = initialStackIndex
-        emitLambdaBinding env (LambdaBinding fnName lambda) =
-          do label <- uniqueLambdaLabel fnName
-             emitLambda label env si lambda
-             return $ insertFnBinding fnName label env
+  lambdasWithLabels <- sequence $ map lambdaNameLabelPair bindings
+  let fnBindings = fromList $ map (\(binding, label) -> (functionName binding, label)) lambdasWithLabels
+  (si, emptyEnv) <- ask
+  let envWithFnBindings = emptyEnv { fnEnv = fnBindings }
+  let withFnBindings = local (const (si, envWithFnBindings))
+  withFnBindings $ mapM_ emitLambdaBinding lambdasWithLabels
+  wrapInEntryPoint $ withFnBindings (emitExpr body)
+  where lambdaNameLabelPair binding =
+          do label <- uniqueLambdaLabel (functionName binding)
+             return (binding, label)
+        emitLambdaBinding (LambdaBinding _ lambda, label) =
+          emitLambda label lambda
 
 emitProgram :: Program -> CodeGen
 emitProgram (Expr expr) =
-  wrapInEntryPoint $ emitExpr initialEnvironment initialStackIndex expr
+  wrapInEntryPoint $ emitExpr expr
 emitProgram (LetRec bindings body) =
   emitLetRec bindings body

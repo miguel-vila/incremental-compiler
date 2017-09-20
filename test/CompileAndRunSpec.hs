@@ -284,9 +284,36 @@ letStarExpressionTests =
       ~> "3"
   ]
 
+app :: FunctionName -> Expr -> Expr
+app f arg = UserFnApp f [arg]
+
+binApp :: FunctionName -> Expr -> Expr -> Expr
+binApp f arg1 arg2 = UserFnApp f [arg1, arg2]
+
 programTests :: [LetRecTestCase]
 programTests =
-  [ ([LambdaBinding "add2" $ Lambda ["x"] (FnApp "fx+" [fx 2, VarRef "x"])], UserFnApp "add2" [fx 7], "9")
+  [ ([LambdaBinding "add2" $ Lambda ["x"] (FnApp "fx+" [fx 2, VarRef "x"])], UserFnApp "add2" [fx 7], "9"),
+    ([], fx 2, "2"),
+    ([], Let [Binding "x" (fx 5)] (binOp "fx+" (var "x") (var "x")), "10"),
+    ([LambdaBinding "f" (Lambda [] (fx 5))], UserFnApp "f" [], "5"),
+    ([LambdaBinding "f" (Lambda [] (fx 5))], Let [Binding "x" (UserFnApp "f" [])] (var "x"), "5"),
+    ([LambdaBinding "f" (Lambda [] (fx 5))], binOp "fx+" (UserFnApp "f" []) (fx 7), "12"),
+    ([LambdaBinding "f" (Lambda [] (fx 5))], binOp "fx+" (UserFnApp "f" []) (UserFnApp "f" []), "10"),
+    ([ LambdaBinding "f" (Lambda [] (binOp "fx+" (fx 5) (fx 7))) ,
+       LambdaBinding "g" (Lambda [] (fx 13))
+     ], binOp "fx+" (UserFnApp "f" []) (UserFnApp "g" []), "25"),
+    ([LambdaBinding "f" (Lambda ["x"] (binOp "fx+" (var "x") (fx 12)))], app "f" (fx 13), "25"),
+    ([LambdaBinding "f" (Lambda ["x"] (binOp "fx+" (var "x") (fx 12)))], app "f" (app "f" (fx 10)), "34"),
+    ([LambdaBinding "f" (Lambda ["x"] (binOp "fx+" (var "x") (fx 12)))], app "f" (app "f" (app "f" (fx 0))), "36"),
+    ([ LambdaBinding "f" (Lambda ["x", "y"] (binOp "fx+" (var "x") (var "y")))
+     , LambdaBinding "g" (Lambda ["x"] (binOp "fx+" (var "x") (fx 12)))], binApp "f" (fx 16) (binApp "f" (app "g" (fx 0)) (binOp "fx+" (fx 1) (app "g" (fx 0))) ), "41"),
+    ([ LambdaBinding "f" (Lambda ["x"] (binApp "g" (var "x") (var "x")))
+     , LambdaBinding "g" (Lambda ["x", "y"] (binOp "fx+" (var "x") (var "y")))],
+      app "f" (fx 12), "24"),
+    ([ LambdaBinding "e" (Lambda ["x"] (If (FnApp "fxzero?" [var "x"]) _True (app "o" (FnApp "fxsub1" [var "x"]))))
+     , LambdaBinding "o" (Lambda ["x"] (If (FnApp "fxzero?" [var "x"]) _False (app "e" (FnApp "fxsub1" [var "x"])))) ],
+     app "e" (fx 25), "#f"
+     )
   ]
 
 executeTestCases :: [TestCase] -> Expectation
