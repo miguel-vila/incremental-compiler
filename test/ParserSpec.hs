@@ -6,13 +6,21 @@ import Test.Hspec
 import Test.HUnit
 import TestUtils
 
-shouldBeParsedTo :: String -> Expr -> Expectation
-shouldBeParsedTo str expr =
+exprShouldBeParsedTo :: String -> Expr -> Expectation
+exprShouldBeParsedTo str expr =
    (readExpr str) `shouldBe` (Right expr)
 
-type TestCase = (String, Expr)
+programShouldBeParsedTo :: String -> Program -> Expectation
+programShouldBeParsedTo str program= (readProgram str) `shouldBe` (Right program)
 
-literalTests :: [TestCase]
+type ExprTestCase = (String, Expr)
+
+type ProgramTestCase = (String, Program)
+
+toProgramTestCase :: ExprTestCase -> ProgramTestCase
+toProgramTestCase (str, expr) = (str, Expr expr)
+
+literalTests :: [ExprTestCase]
 literalTests =
   [ "123"  ~> L (FixNum 123)
   , "#t"   ~> L (Boolean True)
@@ -23,7 +31,7 @@ literalTests =
   , "()"   ~> L Nil
   ]
 
-primitiveTests :: [TestCase]
+primitiveTests :: [ExprTestCase]
 primitiveTests =
   [ "(fx+ 3 2)"
     ~> binOp "fx+" (fx 3) (fx 2)
@@ -33,7 +41,7 @@ primitiveTests =
     ~> binOp "fx+" (binOp "fx-" (fx 3) (fx 2)) (unaryOp "fxsub1" (fx 10))
   ]
 
-ifTests :: [TestCase]
+ifTests :: [ExprTestCase]
 ifTests =
   [ "(if #t 5 6)"
     ~> If _True (fx 5) (fx 6)
@@ -41,7 +49,7 @@ ifTests =
     ~> If (If (binOp "fx>" (fx 2) (fx 3)) (fx 7) (fx 8)) (fx 5) (fx 6) 
   ]
 
-andOrTests :: [TestCase]
+andOrTests :: [ExprTestCase]
 andOrTests =
   [ "(and 4 #f #\\x)"
     ~> And [fx 4, _False, L $ Character 'x']
@@ -49,7 +57,7 @@ andOrTests =
     ~> Or [fx 3, binOp "fx+" (fx 3) (fx 2)]
   ]
 
-varRefsTests :: [TestCase]
+varRefsTests :: [ExprTestCase]
 varRefsTests =
   [ "x"
     ~> var "x"
@@ -57,7 +65,7 @@ varRefsTests =
     ~> binOp "fx+" (var "x") (var "y")
   ]
 
-letTests :: [TestCase]
+letTests :: [ExprTestCase]
 letTests =
   [ "(let ((x 3) (y (fx- 4 5))) (fx* x y))"
     ~> Let [ Binding "x" (fx 3)
@@ -69,20 +77,30 @@ letTests =
                ] (binOp "fx*" (var "x") (var "y"))
   ]
 
-fnAppTests :: [TestCase]
+fnAppTests :: [ExprTestCase]
 fnAppTests =
   [ "(my-fn x 3)"
     ~> binApp "my-fn" (var "x") (fx 3)
   ]
 
-executeTestCases :: [TestCase] -> Expectation
-executeTestCases = mapM_ (\(str, expr) -> str `shouldBeParsedTo` expr)
+programTests :: [ProgramTestCase]
+programTests =
+  [ "(letrec ((my-fn (lambda (x) (fx+ x 2)))) (my-fn 4))"
+    ~> LetRec [LambdaBinding "my-fn" $ Lambda ["x"] (binOp "fx+" (var "x") (fx 2))] (app "my-fn" (fx 4))
+  ] ++ (map toProgramTestCase (literalTests))
+
+executeExprTestCases :: [ExprTestCase] -> Expectation
+executeExprTestCases = mapM_ (\(str, expr) -> str `exprShouldBeParsedTo` expr)
+
+executeProgramTestCases :: [ProgramTestCase] -> Expectation
+executeProgramTestCases = mapM_ (\(str, program) -> str `programShouldBeParsedTo` program)
 
 parserSpec = describe "Parser" $ do
-  it "parses literals" $ executeTestCases literalTests
-  it "parses primitive invocations" $ executeTestCases primitiveTests
-  it "parses if expressions" $ executeTestCases ifTests
-  it "parses and and or expressions" $ executeTestCases andOrTests
-  it "parses var references" $ executeTestCases varRefsTests
-  it "parses let and let* expressions" $ executeTestCases letTests
-  it "parses user function invocations" $ executeTestCases fnAppTests
+  it "parses literals" $ executeExprTestCases literalTests
+  it "parses primitive invocations" $ executeExprTestCases primitiveTests
+  it "parses if expressions" $ executeExprTestCases ifTests
+  it "parses and and or expressions" $ executeExprTestCases andOrTests
+  it "parses var references" $ executeExprTestCases varRefsTests
+  it "parses let and let* expressions" $ executeExprTestCases letTests
+  it "parses user function invocations" $ executeExprTestCases fnAppTests
+  it "parses programs" $ executeProgramTestCases programTests

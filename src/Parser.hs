@@ -16,6 +16,48 @@ readOrThrow parser input = parse parser "lisp" input
 readExpr :: String -> Either ParseError Expr
 readExpr = readOrThrow parseExpr
 
+readProgram :: String -> Either ParseError Program
+readProgram = readOrThrow parseProgram
+
+parseLambda :: Parser Lambda
+parseLambda = do
+  startList
+  string "lambda"
+  atLeastOneSpace
+  startList
+  args <- parseVarName `sepBy` atLeastOneSpace
+  endList
+  atLeastOneSpace
+  body <- parseExpr
+  endList
+  return $ Lambda args body
+
+parseLambdaBinding :: Parser LambdaBinding
+parseLambdaBinding = do
+  startList
+  fnName <- parseVarName
+  atLeastOneSpace
+  lambda <- parseLambda
+  endList
+  return $ LambdaBinding fnName lambda
+
+parseProgram :: Parser Program
+parseProgram =
+  try parseLetRec <|> (Expr <$> parseExpr)
+
+parseLetRec :: Parser Program
+parseLetRec = do
+  startList
+  string "letrec"
+  spaces
+  startList
+  lambdaBindings <- parseLambdaBinding `sepBy` atLeastOneSpace
+  endList
+  atLeastOneSpace
+  body <- parseExpr
+  endList
+  return $ LetRec lambdaBindings body
+
 parseExpr :: Parser Expr
 parseExpr =
   (L <$> try parseLiteral) <|>

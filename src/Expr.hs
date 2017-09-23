@@ -6,10 +6,11 @@ type FunctionName = String
 
 data Lambda = Lambda { params :: [ParamName]
                      , body   :: Expr
-                     }
+                     } deriving (Show, Eq)
 
 data Program = Expr Expr
              | LetRec [LambdaBinding] Expr
+              deriving (Show, Eq)
 
 data Expr = L Literal
           | FnApp FunctionName [Expr]
@@ -33,7 +34,7 @@ type VarName = String
 
 data LambdaBinding = LambdaBinding { functionName :: String
                                    , lambda       :: Lambda
-                                   }
+                                   } deriving (Show, Eq)
 
 data Binding = Binding { name :: VarName
                        , expr :: Expr
