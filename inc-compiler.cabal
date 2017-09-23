@@ -12,8 +12,8 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Lib, Expr, Emitter
-  other-modules:       Parser, InmediateRepr, MagicNumbers
+  exposed-modules:     Lib, Expr, Emitter, Parser
+  other-modules:       InmediateRepr, MagicNumbers
   build-depends:       base >= 4.7 && < 5
                      , hashmap
                      , mtl
@@ -34,7 +34,7 @@ test-suite inc-compiler-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
-  other-modules:       CompileAndRunSpec, EmitterSpec, TestUtils
+  other-modules:       CompileAndRunSpec, EmitterSpec, ParserSpec, TestUtils
   build-depends:       base
                      , parsec
                      , inc-compiler

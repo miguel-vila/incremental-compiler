@@ -21,11 +21,13 @@ data Expr = L Literal
           | VarRef VarName
           | NoOp
           | UserFnApp FunctionName [Expr]
+          deriving (Show, Eq)
 
 data Literal = FixNum Integer
              | Boolean Bool
              | Character Char
              | Nil
+             deriving (Show, Eq)
 
 type VarName = String
 
@@ -35,7 +37,7 @@ data LambdaBinding = LambdaBinding { functionName :: String
 
 data Binding = Binding { name :: VarName
                        , expr :: Expr
-                       }
+                       } deriving (Show, Eq)
 
 _False :: Expr
 _False = L $ Boolean False
