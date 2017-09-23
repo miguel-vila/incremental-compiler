@@ -18,17 +18,18 @@ readExpr = readOrThrow parseExpr
 
 parseExpr :: Parser Expr
 parseExpr =
-  (L <$> parseLiteral) <|>
-  parseIf <|>
-  parseAndOr <|>
-  parseLetOrLetStar <|>
-  parseVarRef <|>
-  parseFnApp
+  (L <$> try parseLiteral) <|>
+  (startList *>
+    (parseIf <|>
+     parseAndOr <|>
+     parseLetOrLetStar <|>
+     parseFnApp)
+    <* endList) <|>
+  parseVarRef
 
 parseLiteral :: Parser Literal
 parseLiteral = parseFixNum <|>
-               parseBoolean <|>
-               parseChar <|>
+               parseStartingWithHash <|>
                parseNull
 
 parseFixNum :: Parser Literal
@@ -38,19 +39,29 @@ parseFixNum = do
     [(n,s')] -> (FixNum $ floor n) <$ setInput s' -- @TODO how to avoid the `floor`?
     _ -> fail "Not an integer"
 
+parseStartingWithHash :: Parser Literal
+parseStartingWithHash = do
+  char '#'
+  parseBoolean <|> parseChar
+
 parseBoolean :: Parser Literal
 parseBoolean =
-  let true = Boolean True <$ string "#t"
-      false = Boolean False <$ string "#f"
+  let true = Boolean True <$ char 't'
+      false = Boolean False <$ char 'f'
   in true <|> false
 
 parseChar :: Parser Literal
 parseChar = Character <$> do
-  char '#'
+  char '\\'
   anyChar
 
+nullOrNil :: Parser String
+nullOrNil = do
+  char 'n'
+  string "ull" <|> string "il"
+
 parseNull :: Parser Literal
-parseNull = Nil <$ (string "null" <|> string "nil" <|> string "()")
+parseNull = Nil <$ (nullOrNil <|> string "()")
 
 isPrimitive :: FnName -> Bool
 isPrimitive fnName = member fnName primitives
@@ -65,12 +76,9 @@ atLeastOneSpace = many1 space
 
 parseFnApp :: Parser Expr
 parseFnApp = do
-  startList
-  atLeastOneSpace
   fnName <- parseVarName
   atLeastOneSpace
   args <- parseExpr `sepBy` atLeastOneSpace
-  endList
   let constr = if isPrimitive fnName
                then FnApp
                else UserFnApp
@@ -78,7 +86,6 @@ parseFnApp = do
 
 parseIf :: Parser Expr
 parseIf = do
-  startList
   string "if"
   atLeastOneSpace
   cond <- parseExpr
@@ -86,8 +93,6 @@ parseIf = do
   conseq <- parseExpr
   atLeastOneSpace
   altern <- parseExpr
-  atLeastOneSpace
-  endList
   return $ If cond conseq altern
 
 parseListExpr :: Parser [Expr]
@@ -96,17 +101,15 @@ parseListExpr =
 
 parseAndOr :: Parser Expr
 parseAndOr = do
-  startList
   which <- (string "and") <|> (string "or")
   atLeastOneSpace
   args <- parseListExpr
   spaces
-  endList
   let constr = if which == "and" then And else Or
   return $ constr args
 
 parseVarName :: Parser VarName
-parseVarName = many1 (satisfy (\c -> not $ isSpace c))
+parseVarName = many1 (satisfy (\x -> not (isSpace x || x == '(' || x == ')' )))
 
 parseBinding :: Parser Binding
 parseBinding = do
@@ -120,15 +123,15 @@ parseBinding = do
 
 parseLetOrLetStar :: Parser Expr
 parseLetOrLetStar = do
-  startList
-  which <- (string "let") <|> (string "let*")
+  string "let"
+  maybeStar <- optionMaybe (char '*')
   atLeastOneSpace
   startList
   bindings <- parseBinding `sepBy` atLeastOneSpace
   endList
+  spaces
   body <- parseExpr
-  endList
-  let constr = if which == "let" then Let else LetStar
+  let constr = if maybeStar == Nothing then Let else LetStar
   return $ constr bindings body
 
 parseVarRef :: Parser Expr

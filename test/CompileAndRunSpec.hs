@@ -284,12 +284,6 @@ letStarExpressionTests =
       ~> "3"
   ]
 
-app :: FunctionName -> Expr -> Expr
-app f arg = UserFnApp f [arg]
-
-binApp :: FunctionName -> Expr -> Expr -> Expr
-binApp f arg1 arg2 = UserFnApp f [arg1, arg2]
-
 programTests :: [LetRecTestCase]
 programTests =
   [ ([LambdaBinding "add2" $ Lambda ["x"] (FnApp "fx+" [fx 2, VarRef "x"])], UserFnApp "add2" [fx 7], "9"),
