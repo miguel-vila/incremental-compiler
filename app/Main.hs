@@ -4,7 +4,7 @@ import Lib
 import Expr
 
 
-binOp op arg1 arg2 = FnApp op [arg1, arg2]
+binOp op arg1 arg2 = PrimitiveApp op [arg1, arg2]
 
 main :: IO ()
 main = do

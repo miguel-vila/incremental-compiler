@@ -110,9 +110,9 @@ getVarIndex varName = do
 emitExpr :: Expr -> CodeGen
 emitExpr (L literal) =
   emitLiteral $ inmediateRepr literal
-emitExpr (FnApp name args) =
+emitExpr (PrimitiveApp name args) =
   let (Just primitive) = lookup name primitives  -- @TODO handle this
-  in emitFnApp name primitive args
+  in emitPrimitiveApp name primitive args
 emitExpr (If condition conseq altern) =
   emitIf condition conseq altern
 emitExpr (And preds) =
@@ -183,8 +183,8 @@ emitLetStar bindings body = emitLetStar' bindings
              let withLocalSiEnv = local (\(si,env) -> (nextStackIndex si, insertVarBinding (name binding) si env) )
              withLocalSiEnv $ emitLetStar' bindingsTail
 
-emitFnApp :: FunctionName -> FnGen -> [Expr] -> CodeGen
-emitFnApp fnName fnGen args =
+emitPrimitiveApp :: FunctionName -> FnGen -> [Expr] -> CodeGen
+emitPrimitiveApp fnName fnGen args =
   case fnGen of
     UnaryFn codeGen -> do
       emitExpr $ head args -- @TODO check # of args
@@ -427,7 +427,7 @@ emitIf condition conseq altern = do
         ifEqJumpTo alternLabel
   let evalCondAndJumpToAlternIfFalse =
         case condition of
-          FnApp fnName args ->
+          PrimitiveApp fnName args ->
             let (Just primitive) = lookup fnName primitives  -- @TODO handle this
                 emitAndJump (UnaryFn fnCode) =
                   emitIfFor fnCode

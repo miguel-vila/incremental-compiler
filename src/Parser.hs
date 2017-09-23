@@ -122,7 +122,7 @@ parseFnApp = do
   atLeastOneSpace
   args <- parseExpr `sepBy` atLeastOneSpace
   let constr = if isPrimitive fnName
-               then FnApp
+               then PrimitiveApp
                else UserFnApp
   return $ constr fnName args
 

@@ -13,7 +13,7 @@ data Program = Expr Expr
               deriving (Show, Eq)
 
 data Expr = L Literal
-          | FnApp FunctionName [Expr]
+          | PrimitiveApp FunctionName [Expr]
           | If Expr Expr Expr
           | And [Expr]
           | Or [Expr]
