@@ -187,7 +187,7 @@ emitFnApp :: FunctionName -> FnGen -> [Expr] -> CodeGen
 emitFnApp fnName fnGen args =
   case fnGen of
     UnaryFn codeGen -> do
-      emitArgs args -- @TODO check # of args
+      emitExpr $ head args -- @TODO check # of args
       codeGen
     BinaryFn codeGen ->
       if elem fnName canBeOptimized
@@ -213,6 +213,7 @@ emitBinaryFnApp codeGen args = do
     sv <- stackValueAtIndex
     codeGen sv eax
 
+-- @TODO: this assumes commutativity?
 emitBinaryFnOpt :: (Register -> Register -> CodeGen) -> [Expr] -> CodeGen
 emitBinaryFnOpt codeGen args = case args of
   [L arg1, arg2] -> do
@@ -221,6 +222,19 @@ emitBinaryFnOpt codeGen args = case args of
   [arg1, L arg2] -> do
     emitExpr arg1
     codeGen ("$" ++ (show $ inmediateRepr arg2)) eax
+  [VarRef arg1, VarRef arg2] -> do
+    si1 <- getVarIndex arg1
+    si2 <- getVarIndex arg2
+    emitStackLoad si1
+    codeGen (stackValueAt si2) eax
+  [VarRef arg1, arg2] -> do
+    emitExpr arg2
+    si <- getVarIndex arg1
+    codeGen (stackValueAt si) eax
+  [arg1, VarRef arg2] -> do
+    emitExpr arg1
+    si <- getVarIndex arg2
+    codeGen (stackValueAt si) eax
   _              ->
     emitBinaryFnApp codeGen args
 
