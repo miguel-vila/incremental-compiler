@@ -71,14 +71,6 @@ badFibonacci = LambdaBinding "fib" $
   Lambda ["n"] $
   If (binOp "fx<=" (var "n") (fx 1)) (var "n") $ binOp "fx+" (app "fib" (binOp "fx-" (var "n") (fx 1))) (app "fib" (binOp "fx-" (var "n") (fx 2)))
 
-sumFirstN1 :: LambdaBinding
-sumFirstN1 =
-  LambdaBinding "sum" (Lambda ["n", "acc"]
-                        (If (unaryOp "fxzero?" (var "n"))
-                          (var "acc")
-                          (UserFnApp "sum" [ unaryOp "fxsub1" (var "n")
-                                           , binOp "fx+" (var "n") (var "acc")])))
-
 tailRecTestCases :: [ProgramTestCase]
 tailRecTestCases =
   [ LetRec [ sumFirstN1 ]

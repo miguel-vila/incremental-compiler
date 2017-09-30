@@ -87,6 +87,12 @@ programTests :: [ProgramTestCase]
 programTests =
   [ "(letrec ((my-fn (lambda (x) (fx+ x 2)))) (my-fn 4))"
     ~> LetRec [LambdaBinding "my-fn" $ Lambda ["x"] (binOp "fx+" (var "x") (fx 2))] (app "my-fn" (fx 4))
+  , (unlines [ "(letrec ((sum (lambda (n acc)"
+             , "                (if (fxzero? n)"
+             , "                    acc"
+             , "                    (sum (fxsub1 n) (fx+ n acc))))))"
+             , "  (sum 10000 0))"
+             ]) ~> LetRec [sumFirstN1] (binApp "sum" (fx 10000) (fx 0))
   ] ++ (map toProgramTestCase (literalTests))
 
 executeExprTestCases :: [ExprTestCase] -> Expectation

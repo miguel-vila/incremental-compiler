@@ -2,17 +2,53 @@ module Main where
 
 import Lib
 import Expr
-
+import Parser
+import Emitter
+import System.Environment(getArgs)
+import System.IO
+import System.Exit
+import Text.ParserCombinators.Parsec.Error
+import Data.String.Utils
 
 binOp op arg1 arg2 = PrimitiveApp op [arg1, arg2]
 
+printError :: String -> IO ()
+printError errorMessage =
+  hPutStrLn stderr errorMessage
+
+printErrorAndExit :: String -> IO a
+printErrorAndExit errorMessage =
+  do printError errorMessage
+     exitFailure
+
+getFileName :: [String] -> IO String
+getFileName []             =
+  printErrorAndExit "Must pass filename"
+getFileName (filePath : _) =
+  return filePath
+
+parse :: String -> IO Program
+parse fileContent =
+  case readProgram fileContent of
+    Left parseError ->
+      do printError "Error while parsing"
+         printError $ "Position: " ++ (show $ errorPos parseError)
+         mapM_ (printError . messageString) (errorMessages parseError)
+         exitFailure
+    Right ast ->
+      return ast
+
+replaceFormatWithS :: String -> String
+replaceFormatWithS sourceFileName =
+  (concat $ init (split "." sourceFileName)) ++ ".s"
+
 main :: IO ()
 main = do
-  let --add2 = LambdaBinding "add2" $ Lambda ["x"] (FnApp "fx+" [fx 2, VarRef "x"])
-      --source = LetRec [add2] (UserFnApp "add2" [fx 7])
-      --let source = FixNum $ -1
-      --output <- compileAndExecute source
-      --source = Expr $ FnApp "fx+" [ FnApp "fx+" [(fx 3), (fx 5)], FnApp "fx+" [(fx 7), (fx 12)] ]
-      source = Expr $ Let [Binding "x" (fx 1)] (Let [Binding "x" (binOp "fx+" (var "x") (fx 1)), Binding "y" (binOp "fx+" (var "x") (fx 1))] (var "y"))
-      output = compileCode source
-    in putStrLn output
+  do args <- getArgs
+     fileName <- getFileName args
+     fileContent <- readFile fileName
+     ast <- parse fileContent
+     let compiledCode = unlines $ compile ast
+     let compiledCodeFileName = replaceFormatWithS fileName
+     writeFile compiledCodeFileName compiledCode
+     putStrLn $ "Successful compilation! You can see the file: " ++ compiledCodeFileName

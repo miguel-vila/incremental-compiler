@@ -43,7 +43,7 @@ parseLambdaBinding = do
 
 parseProgram :: Parser Program
 parseProgram =
-  try parseLetRec <|> (Expr <$> parseExpr)
+  (try parseLetRec) <|> (try $ Expr <$> parseExpr)
 
 parseLetRec :: Parser Program
 parseLetRec = do
