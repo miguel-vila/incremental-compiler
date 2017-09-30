@@ -14,7 +14,9 @@ type Code = [String]
 -- The id for the function labels
 type CodeGenState = Int
 
-type GenReaderState = StateT CodeGenState (ReaderT (StackIndex, Environment) (Writer Code))
+type IsTail = Bool
+
+type GenReaderState = StateT CodeGenState (ReaderT (StackIndex, Environment, IsTail) (Writer Code))
 
 type CodeGen = GenReaderState ()
 
@@ -44,13 +46,16 @@ initialStackIndex = - wordsize
 initialEnvironment :: Environment
 initialEnvironment = Environment empty empty
 
+initialIsTail :: IsTail
+initialIsTail = True
+
 compile :: Program -> Code
 compile = executeGen . emitProgram
 
 executeGen :: CodeGen -> Code
 executeGen codeGen = execWriter $
   runReaderT (evalStateT codeGen initialState)
-             (initialStackIndex, initialEnvironment)
+             (initialStackIndex, initialEnvironment, initialIsTail)
 
 tab :: String
 tab = "    "
@@ -101,35 +106,68 @@ emitBooleanByComparison compareType = do
 ifEqReturnTrue :: CodeGen
 ifEqReturnTrue = emitBooleanByComparison Eq
 
+getEnv :: GenReaderState Environment
+getEnv = fmap (\(_,env,_) -> env) ask
+
+getStackIndex :: GenReaderState StackIndex
+getStackIndex = fmap (\(si,_,_) -> si) ask
+
+isInTailPosition :: GenReaderState IsTail
+isInTailPosition = fmap (\(_,_,isTail) -> isTail) ask
+
 getVarIndex :: VarName -> GenReaderState StackIndex
 getVarIndex varName = do
-  (_, env) <- ask
+  env <- getEnv
   let Just si = lookup varName (varEnv env) -- @TODO handle this
   return si
 
-emitExpr :: Expr -> CodeGen
-emitExpr (L literal) =
+ret :: CodeGen
+ret = emit "ret"
+
+emitReturnIfTail :: CodeGen
+emitReturnIfTail = do
+  isTail <- isInTailPosition
+  if isTail
+  then ret
+  else noop
+
+emitExprBase :: Expr -> CodeGen
+emitExprBase (L literal) = do
   emitLiteral $ inmediateRepr literal
-emitExpr (PrimitiveApp name args) =
+  emitReturnIfTail
+emitExprBase (PrimitiveApp name args) =
   let (Just primitive) = lookup name primitives  -- @TODO handle this
-  in emitPrimitiveApp name primitive args
-emitExpr (If condition conseq altern) =
+  in do emitPrimitiveApp name primitive args
+        emitReturnIfTail
+emitExprBase (If condition conseq altern) =
   emitIf condition conseq altern
-emitExpr (And preds) =
+emitExprBase (And preds) =
   emitAnd preds
-emitExpr (Or preds) =
+emitExprBase (Or preds) =
   emitOr preds
-emitExpr (Let bindings body) =
+emitExprBase (Let bindings body) =
   emitLet bindings body
-emitExpr (LetStar bindings body) =
+emitExprBase (LetStar bindings body) =
   emitLetStar bindings body
-emitExpr (VarRef varName) = do
+emitExprBase (VarRef varName) = do
   si <- getVarIndex varName
   emitStackLoad si
-emitExpr (UserFnApp fnName args) =
+  emitReturnIfTail
+emitExprBase (UserFnApp fnName args) =
   emitUserFnApp fnName args
-emitExpr NoOp =
+emitExprBase NoOp =
   noop
+
+withIsTailSetTo :: Bool -> GenReaderState a -> GenReaderState a
+withIsTailSetTo isTail = local (\(env,si,_) -> (env,si,isTail))
+
+emitExpr :: Expr -> CodeGen
+emitExpr expr =
+  withIsTailSetTo False (emitExprBase expr)
+
+emitTailExpr :: Expr -> CodeGen
+emitTailExpr expr =
+  withIsTailSetTo True (emitExprBase expr)
 
 insertVarBinding :: VarName -> StackIndex -> Environment -> Environment
 insertVarBinding varName si env =
@@ -137,50 +175,66 @@ insertVarBinding varName si env =
 
 emitAdjustBase :: (StackIndex -> Integer) -> CodeGen
 emitAdjustBase f = do
-  (si, _) <- ask
+  si <- getStackIndex
   emit $ "addl $" ++ show (f si) ++ ", %esp"
 
 getFnLabel :: FunctionName -> GenReaderState Label
 getFnLabel fnName = do
-  (_, env) <- ask
+  env <- getEnv
   let Just label = lookup fnName (fnEnv env) -- @TODO handle this
   return label
 
 withNextIndex :: GenReaderState a -> GenReaderState a
 withNextIndex =
-  local (\(si,env) -> (nextStackIndex si, env))
+  local (\(si,env,isTail) -> (nextStackIndex si, env, isTail))
+
+collapseStack :: Int -> StackIndex -> StackIndex -> CodeGen
+collapseStack 0 _ _ =
+  noop
+collapseStack n originalStackIndex argsStackIndex =
+  do movl (stackValueAt argsStackIndex) eax
+     movl eax (stackValueAt originalStackIndex)
+     collapseStack (n - 1) (nextStackIndex originalStackIndex) (nextStackIndex argsStackIndex)
 
 emitUserFnApp :: FunctionName -> [Expr] -> CodeGen
 emitUserFnApp fnName args = do
   label <- getFnLabel fnName
   withNextIndex (emitArgs args)
-  emitAdjustBase (\si -> si + wordsize)
-  emit $ "call " ++ label
-  emitAdjustBase (\si -> - si - wordsize)
+  isTail <- isInTailPosition
+  if isTail
+    then do si <- getStackIndex
+            collapseStack (length args) (- wordsize) (nextStackIndex si)
+            emit $ "jmp " ++ label
+    else do emitAdjustBase (\si -> si + wordsize)
+            emit $ "call " ++ label
+            emitAdjustBase (\si -> - si - wordsize)
 
 withEnv :: Environment -> GenReaderState a -> GenReaderState a
 withEnv env =
-  local (\(si,_) -> (si,env))
+  local (\(si,_,isTail) -> (si,env,isTail))
 
+-- @TODO refactor repetition between these 2 functions
 emitLet :: [Binding] -> Expr -> CodeGen
 emitLet bindings body = do
-  (_, env) <- ask
+  env <- getEnv
   emitLet' bindings env
-  where emitLet' [] env = withEnv env $ emitExpr body
+  where emitLet' [] env =
+          withEnv env $ emitExprBase body
         emitLet' (binding : bindingsTail) env =
           do emitExpr (expr binding)
              emitStackSave
-             (si,_) <- ask
+             si <- getStackIndex
              let nextEnv = insertVarBinding (name binding) si env
              withNextIndex $ emitLet' bindingsTail nextEnv
 
 emitLetStar :: [Binding] -> Expr -> CodeGen
 emitLetStar bindings body = emitLetStar' bindings
-  where emitLetStar' [] = emitExpr body
+  where emitLetStar' [] =
+          emitExprBase body
         emitLetStar' (binding : bindingsTail) =
           do emitExpr (expr binding)
              emitStackSave
-             let withLocalSiEnv = local (\(si,env) -> (nextStackIndex si, insertVarBinding (name binding) si env) )
+             let withLocalSiEnv = local (\(si,env,isTail) -> (nextStackIndex si, insertVarBinding (name binding) si env, isTail) )
              withLocalSiEnv $ emitLetStar' bindingsTail
 
 emitPrimitiveApp :: FunctionName -> FnGen -> [Expr] -> CodeGen
@@ -370,6 +424,13 @@ jumpTo :: Label -> CodeGen
 jumpTo label =
   emit $ "jmp " ++ label
 
+emitIfNotTail :: CodeGen -> CodeGen
+emitIfNotTail codeGen = do
+  isTail <- isInTailPosition
+  if not isTail
+    then codeGen
+    else noop
+
 emitLabel :: Label -> CodeGen
 emitLabel label =
   emitNoTab $ label ++ ":"
@@ -447,11 +508,11 @@ emitIf condition conseq altern = do
                   compareTo falseValue
                   ifEqJumpTo alternLabel
   evalCondAndJumpToAlternIfFalse
-  emitExpr conseq
-  jumpTo endLabel
+  emitExprBase conseq
+  emitIfNotTail $ jumpTo endLabel
   emitLabel alternLabel
-  emitExpr altern
-  emitLabel endLabel
+  emitExprBase altern
+  emitIfNotTail $ emitLabel endLabel
 
 emitAnd :: [Expr] -> CodeGen
 emitAnd []            = emitExpr _False
@@ -470,7 +531,7 @@ stackValueAt si = (show si) ++ "(%esp)"
 
 stackValueAtIndex :: GenReaderState String
 stackValueAtIndex = do
-  (si,_) <- ask
+  si <- getStackIndex
   return $ stackValueAt si
 
 type Inst = String
@@ -562,10 +623,9 @@ emitLambda label lmb = do
   emitLabel label
   emitParams (params lmb)
   where emitParams [] = do
-          emitExpr (body lmb)
-          emit "ret"
+          emitTailExpr (body lmb)
         emitParams (arg:restOfArgs) = do
-          let withLocalSiEnv = local (\(si,env) -> (nextStackIndex si, insertVarBinding arg si env) )
+          let withLocalSiEnv = local (\(si,env,isTail) -> (nextStackIndex si, insertVarBinding arg si env, isTail) )
           withLocalSiEnv $ emitParams restOfArgs
 
 -- @TODO whole function is very ugly, refactor!
@@ -573,9 +633,9 @@ emitLetRec :: [LambdaBinding] -> Expr -> CodeGen
 emitLetRec bindings body = do
   lambdasWithLabels <- sequence $ map lambdaNameLabelPair bindings
   let fnBindings = fromList $ map (\(binding, label) -> (functionName binding, label)) lambdasWithLabels
-  (si, emptyEnv) <- ask
+  (si, emptyEnv, isTail) <- ask
   let envWithFnBindings = emptyEnv { fnEnv = fnBindings }
-  let withFnBindings = local (const (si, envWithFnBindings))
+  let withFnBindings = local (const (si, envWithFnBindings, isTail))
   withFnBindings $ mapM_ emitLambdaBinding lambdasWithLabels
   wrapInEntryPoint $ withFnBindings (emitExpr body)
   where lambdaNameLabelPair binding =

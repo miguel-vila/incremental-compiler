@@ -66,13 +66,22 @@ fxPlusTests =
        ]
   ]
 
+badFibonacci :: LambdaBinding
+badFibonacci = LambdaBinding "fib" $
+  Lambda ["n"] $
+  If (binOp "fx<=" (var "n") (fx 1)) (var "n") $ binOp "fx+" (app "fib" (binOp "fx-" (var "n") (fx 1))) (app "fib" (binOp "fx-" (var "n") (fx 2)))
+
+sumFirstN1 :: LambdaBinding
+sumFirstN1 =
+  LambdaBinding "sum" (Lambda ["n", "acc"]
+                        (If (unaryOp "fxzero?" (var "n"))
+                          (var "acc")
+                          (UserFnApp "sum" [ unaryOp "fxsub1" (var "n")
+                                           , binOp "fx+" (var "n") (var "acc")])))
+
 tailRecTestCases :: [ProgramTestCase]
 tailRecTestCases =
-  [ LetRec [ LambdaBinding "sum" (Lambda ["n", "acc"]
-                                  (If (unaryOp "fxzero?" (var "n"))
-                                   (var "acc")
-                                   (UserFnApp "sum" [ unaryOp "fxsub1" (var "n")
-                                                    , binOp "fx+" (var "n") (var "acc")])))]
+  [ LetRec [ sumFirstN1 ]
     (UserFnApp "sum" [fx 10, fx 0])
     ~>
     ([ "Lambda_0:"
@@ -81,19 +90,19 @@ tailRecTestCases =
      , tabbed "cmp $0, %al"
      , tabbed "jne L_1"
      , tabbed "movl -8(%esp), %eax"
-     , tabbed "jmp L_2"
+     , tabbed "ret"
      , "L_1:"
-     , tabbed "movl -4(%esp), %eax"
+     , tabbed "movl -4(%esp), %eax" -- emit args
      , tabbed "subl $4, %eax"
      , tabbed "movl %eax, -16(%esp)"
      , tabbed "movl -4(%esp), %eax"
      , tabbed "addl -8(%esp), %eax"
      , tabbed "movl %eax, -20(%esp)"
-     , tabbed "addl $-8, %esp"
-     , tabbed "call Lambda_0"
-     , tabbed "addl $8, %esp"
-     , "L_2:"
-     , tabbed "ret"
+     , tabbed "movl -16(%esp), %eax" -- stack colapse next 4
+     , tabbed "movl %eax, -4(%esp)"
+     , tabbed "movl -20(%esp), %eax"
+     , tabbed "movl %eax, -8(%esp)"
+     , tabbed "jmp Lambda_0"
      ],
      [ tabbed "movl $40, %eax"
      , tabbed "movl %eax, -8(%esp)"
@@ -103,7 +112,8 @@ tailRecTestCases =
      , tabbed "call Lambda_0"
      , tabbed "addl $0, %esp"
      ]
-    )]
+    )
+  ]
 
 executeExprTestCases :: [ExprTestCase] -> Expectation
 executeExprTestCases = mapM_ (\(expr, expectedOutput) -> exprShouldEmit expr expectedOutput)
