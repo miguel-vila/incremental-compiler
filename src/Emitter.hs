@@ -94,7 +94,7 @@ emitLiteral n = do
 
 applyMask :: Integer -> CodeGen
 applyMask mask =
-  emit $ "and $" ++ show mask ++ ", %al"
+  emit $ "and $" ++ show mask ++ ", %eax"
 
 emitBooleanByComparison :: ComparisonType -> CodeGen
 emitBooleanByComparison compareType = do
@@ -375,7 +375,7 @@ fixNumToChar = UnaryFn $ do
 
 compareTo :: Integer -> CodeGen
 compareTo n =
-  emit $ "cmp $" ++ show n ++ ", %al"
+  emit $ "cmp $" ++ show n ++ ", %eax"
 
 data ComparisonType = Eq
                     | Less
