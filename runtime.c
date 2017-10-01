@@ -64,15 +64,14 @@ void print_ptr(ptr value) {
 
 int main(int argc, char** argv){
   int stack_size = 16 * 4096; /* holds 16K cells */
+  int heap_size  = 16 * 4096; /* holds 16K cells */
   char* stack_top = allocate_protected_space(stack_size);
   char* stack_base = stack_top + stack_size;
-  print_ptr(scheme_entry(stack_base));
+  char* heap_top = allocate_protected_space(heap_size);
+  char* heap_base = heap_top + heap_size;
+  context ctx;
+  print_ptr(scheme_entry(&ctx, stack_base, heap_base));
   deallocate_protected_space(stack_top, stack_size);
-  /*
-  printf("%s\n", toString(12));
-  printf("%s\n", toString(47));
-  printf("%s\n", toString(47+64));
-  printf("%s\n", toString(16655));
-  */
+  deallocate_protected_space(heap_top, heap_size);
   return EX_OK;
 }

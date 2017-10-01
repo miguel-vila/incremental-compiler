@@ -57,11 +57,14 @@ executeGen codeGen = execWriter $
   runReaderT (evalStateT codeGen initialState)
              (initialStackIndex, initialEnvironment, initialIsTail)
 
-tab :: String
-tab = "    "
+tabbed :: String -> String
+tabbed s = "    " ++ s
 
 emit :: String -> CodeGen
-emit s = tell [ tab ++ s]
+emit s = tell [ tabbed s ]
+
+emitAll :: [String] -> CodeGen
+emitAll = tell
 
 emitNoTab :: String -> CodeGen
 emitNoTab s = tell [s]
@@ -75,6 +78,31 @@ emitFunctionHeader label = do
   emitNoTab $ ".type " ++ label ++ ", @function"
   emitLabel label
 
+saveRegistersInsts :: [String]
+saveRegistersInsts = map tabbed
+  [ "movl 4(%esp), %ecx"  -- first parameter (4%esp) points to context struct
+  , "movl %ebx, 4(%ecx)"
+  , "movl %esi, 16(%ecx)"
+  , "movl %edi, 20(%ecx)"
+  , "movl %ebp, 24(%ecx)"
+  , "movl %esp, 28(%ecx)"
+  ]
+
+loadHeapAndStackPointersInsts :: [String]
+loadHeapAndStackPointersInsts = map tabbed
+  [ "movl 12(%esp), %ebp" -- load heap  pointer from 3rd parameter
+  , "movl 8(%esp) , %esp" -- load stack pointer from 2nd parameter
+  ]
+
+restoreRegistersInsts :: [String]
+restoreRegistersInsts = map tabbed
+  [ "movl 4(%ecx), %ebx"  -- restore C's registers
+  , "movl 16(%ecx), %esi"
+  , "movl 20(%ecx), %edi"
+  , "movl 24(%ecx), %ebp"
+  , "movl 28(%ecx), %esp"
+  ]
+
 wrapInEntryPoint :: CodeGen -> CodeGen
 wrapInEntryPoint code = do
   emitNoTab ".text"
@@ -82,10 +110,10 @@ wrapInEntryPoint code = do
   code
   emit "ret"
   emitFunctionHeader "scheme_entry"
-  emit "mov %esp, %ecx"      -- save C's stack pointer
-  emit "mov 4(%esp), %esp"   -- load stack pointer from parameter
+  emitAll saveRegistersInsts
+  emitAll loadHeapAndStackPointersInsts
   emit "call L_scheme_entry"
-  emit "mov %ecx, %esp"      -- restore C's stack pointer
+  emitAll restoreRegistersInsts
   emit "ret"
 
 emitLiteral :: Integer -> CodeGen

@@ -8,25 +8,23 @@ import Control.Monad.Error.Class
 import Test.HUnit
 import TestUtils
 
-tabbed = (tab ++)
-
 wrap :: Code -> Code
 wrap code =
   [ ".text"
   , ".globl L_scheme_entry"
   , ".type L_scheme_entry, @function"
   , "L_scheme_entry:"
-  ] ++ code ++ [
-    tabbed"ret"
+  ] ++ code ++
+  [ tabbed "ret"
   , ".globl scheme_entry"
   , ".type scheme_entry, @function"
   , "scheme_entry:"
-  , tabbed "mov %esp, %ecx"
-  , tabbed "mov 4(%esp), %esp"
-  , tabbed "call L_scheme_entry"
-  , tabbed "mov %ecx, %esp"
-  , tabbed "ret"
   ]
+  ++ saveRegistersInsts
+  ++ loadHeapAndStackPointersInsts
+  ++ [ tabbed "call L_scheme_entry" ]
+  ++ restoreRegistersInsts
+  ++ [ tabbed "ret" ]
 
 exprShouldEmit :: Expr -> Code -> Expectation
 exprShouldEmit expr code =
