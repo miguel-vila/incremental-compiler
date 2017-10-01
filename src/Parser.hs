@@ -10,13 +10,22 @@ import Numeric (readFloat)
 import Expr hiding (char)
 import Emitter
 
-readOrThrow :: Parser a -> String -> Either ParseError a
-readOrThrow parser input = parse parser "lisp" input
+data ParsingError = ParsingError { messages :: [String]
+                                 , position :: String
+                                 } deriving (Show, Eq)
 
-readExpr :: String -> Either ParseError Expr
+toParsingError :: ParseError -> ParsingError
+toParsingError parseError =
+  ParsingError (map messageString (errorMessages parseError)) (show $ errorPos parseError)
+
+readOrThrow :: Parser a -> String -> Either ParsingError a
+readOrThrow parser input =
+  either (Left . toParsingError) Right (parse parser "lisp" input)
+
+readExpr :: String -> Either ParsingError Expr
 readExpr = readOrThrow parseExpr
 
-readProgram :: String -> Either ParseError Program
+readProgram :: String -> Either ParsingError Program
 readProgram = readOrThrow parseProgram
 
 parseLambda :: Parser Lambda
@@ -63,7 +72,7 @@ parseExpr =
   (L <$> try parseLiteral) <|>
   (startList *>
     (parseIf <|>
-     parseAndOr <|>
+     try parseAndOr <|>
      parseLetOrLetStar <|>
      parseFnApp)
     <* endList) <|>

@@ -7,10 +7,7 @@ import Emitter
 import System.Environment(getArgs)
 import System.IO
 import System.Exit
-import Text.ParserCombinators.Parsec.Error
 import Data.String.Utils
-
-binOp op arg1 arg2 = PrimitiveApp op [arg1, arg2]
 
 printError :: String -> IO ()
 printError errorMessage =
@@ -32,8 +29,8 @@ parse fileContent =
   case readProgram fileContent of
     Left parseError ->
       do printError "Error while parsing"
-         printError $ "Position: " ++ (show $ errorPos parseError)
-         mapM_ (printError . messageString) (errorMessages parseError)
+         printError $ "Position: " ++ (position parseError)
+         mapM_ printError (messages parseError)
          exitFailure
     Right ast ->
       return ast

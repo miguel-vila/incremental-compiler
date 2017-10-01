@@ -309,14 +309,8 @@ programTests =
      app "e" (fx 25), "#f"
      ),
     ([ sumFirstN1 ], (binApp "sum" (fx 10) (fx 0)), "55" ),
-    ([ sumFirstN1 ], (binApp "sum" (fx 50) (fx 0)), "1275" ),
-    ([ sumFirstN1 ], (binApp "sum" (fx 62) (fx 0)), "1953" ),
-    ([ sumFirstN1 ], (binApp "sum" (fx 63) (fx 0)), "2016" )
---    ([ sumFirstN1 ], (binApp "sum" (fx 64) (fx 0)), "2080" ),
---    ([ sumFirstN1 ], (binApp "sum" (fx 66) (fx 0)), "2211" ),
---    ([ sumFirstN1 ], (binApp "sum" (fx 68) (fx 0)), "2346" ),
---    ([ sumFirstN1 ], (binApp "sum" (fx 70) (fx 0)), "2485" ),
---    ([ sumFirstN1 ], (binApp "sum" (fx 75) (fx 0)), "2850" )
+    ([ sumFirstN1 ], (binApp "sum" (fx 10000) (fx 0)), "50005000" ),
+    (evenOddBindings, (app "e" (fx 5000000)), "#t")
   ]
 
 executeTestCases :: [TestCase] -> Expectation

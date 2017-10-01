@@ -79,7 +79,7 @@ tailRecTestCases =
     ([ "Lambda_0:"
      , tabbed "movl -4(%esp), %eax"
      , tabbed "movl %eax, -12(%esp)"
-     , tabbed "cmp $0, %al"
+     , tabbed "cmp $0, %eax"
      , tabbed "jne L_1"
      , tabbed "movl -8(%esp), %eax"
      , tabbed "ret"

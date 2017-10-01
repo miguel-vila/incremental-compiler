@@ -93,6 +93,10 @@ programTests =
              , "                    (sum (fxsub1 n) (fx+ n acc))))))"
              , "  (sum 10000 0))"
              ]) ~> LetRec [sumFirstN1] (binApp "sum" (fx 10000) (fx 0))
+  , (unlines [ "(letrec ((e (lambda (x) (if (fxzero? x) #t (o (fxsub1 x)))))"
+             , "         (o (lambda (x) (if (fxzero? x) #f (e (fxsub1 x))))))"
+             , "     (e 5000000))"]) ~>
+    LetRec evenOddBindings (app "e" (fx 5000000))
   ] ++ (map toProgramTestCase (literalTests))
 
 executeExprTestCases :: [ExprTestCase] -> Expectation

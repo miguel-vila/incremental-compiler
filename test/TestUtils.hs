@@ -22,5 +22,12 @@ sumFirstN1 =
                           (UserFnApp "sum" [ unaryOp "fxsub1" (var "n")
                                            , binOp "fx+" (var "n") (var "acc")])))
 
+evenOddBindings :: [LambdaBinding]
+evenOddBindings =
+  [ LambdaBinding "e" $ Lambda ["x"]
+    (If (unaryOp "fxzero?" (var "x")) _True (app "o" (unaryOp "fxsub1" (var "x"))))
+  , LambdaBinding "o" $ Lambda ["x"]
+    (If (unaryOp "fxzero?" (var "x")) _False (app "e" (unaryOp "fxsub1" (var "x"))))
+  ]
 
 (~>) = (,)
