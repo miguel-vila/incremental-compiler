@@ -30,4 +30,13 @@ evenOddBindings =
     (If (unaryOp "fxzero?" (var "x")) _False (app "e" (unaryOp "fxsub1" (var "x"))))
   ]
 
+cons :: Expr -> Expr -> Expr
+cons = binOp "cons"
+
+car :: Expr -> Expr
+car = unaryOp "car"
+
+cdr :: Expr -> Expr
+cdr = unaryOp "cdr"
+
 (~>) = (,)

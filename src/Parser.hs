@@ -128,8 +128,9 @@ atLeastOneSpace = many1 space
 parseFnApp :: Parser Expr
 parseFnApp = do
   fnName <- parseVarName
-  atLeastOneSpace
-  args <- parseExpr `sepBy` atLeastOneSpace
+  args <- try $ option [] $ many1 $ do
+          atLeastOneSpace
+          parseExpr
   let constr = if isPrimitive fnName
                then PrimitiveApp
                else UserFnApp

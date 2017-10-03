@@ -79,7 +79,11 @@ letTests =
 
 fnAppTests :: [ExprTestCase]
 fnAppTests =
-  [ "(my-fn x 3)"
+  [ "(my-fn)"
+    ~> (UserFnApp "my-fn" [])
+  , "(f)"
+    ~> (UserFnApp "f" [])
+  , "(my-fn x 3)"
     ~> binApp "my-fn" (var "x") (fx 3)
   ]
 

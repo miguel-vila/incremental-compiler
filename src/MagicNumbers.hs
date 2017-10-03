@@ -27,3 +27,14 @@ charShift = 8
 nilValue :: Integer
 nilValue = 63 -- 00111111
 
+pairTag :: Int
+pairTag = 1
+
+pairMask :: Integer
+pairMask = 7 -- 00000111
+
+carOffset :: Integer
+carOffset = -4
+
+cdrOffset :: Integer
+cdrOffset = - 8

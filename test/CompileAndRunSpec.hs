@@ -313,6 +313,23 @@ programTests =
     (evenOddBindings, (app "e" (fx 5000000)), "#t")
   ]
 
+pairTests :: [ExprTestCase]
+pairTests =
+  [ Let [ Binding "myPair" (binOp "cons" (fx 5) (fx 10)) ]
+    (unaryOp "pair?" (var "myPair"))
+    ~> "#t"
+  , unaryOp "pair?" (fx 3)
+    ~> "#f"
+  , car (cons (fx 5) (fx 7))
+    ~> "5"
+  , cdr (cons (fx 5) (fx 7))
+    ~> "7"
+  , car (cdr (cons (fx 5) (cons (fx 4) (fx 7))))
+    ~> "4"
+  , (car $ car (cons (cons (fx 3) (fx 8)) (fx 1)))
+    ~> "3"
+  ]
+
 executeTestCases :: [TestCase] -> Expectation
 executeTestCases = mapM_ (\(source, expectedOutput) -> whenRunShouldPrint source expectedOutput)
 
@@ -341,3 +358,4 @@ compileAndRunSpec = describe "CompileAndExecute" $ do
   it "evaluates let expressions" $ executeExprTestCases letExpressionTests
   it "evaluates let* expressions" $ executeExprTestCases letStarExpressionTests
   it "evaluates programs that define functions" $ executeLetRecTestCases programTests
+  it "evaluates pairs expressions" $ executeExprTestCases pairTests

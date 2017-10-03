@@ -290,9 +290,11 @@ canBeOptimized = [ "fx+"
                  ]
 
 emitBinaryFnApp :: (Register -> Register -> CodeGen) -> [Expr] -> CodeGen
-emitBinaryFnApp codeGen args = do
-    emitArgsWithoutLastSave args
+emitBinaryFnApp codeGen [arg1, arg2] = do
+    emitExpr arg1
+    emitStackSave
     sv <- stackValueAtIndex
+    withNextIndex $ emitExpr arg2
     codeGen sv eax
 
 -- @TODO: this assumes commutativity?
@@ -343,17 +345,6 @@ emitArgs args = loop args
           emitStackSave
           withNextIndex (loop argsTail)
 
-emitArgsWithoutLastSave :: [Expr] -> CodeGen
-emitArgsWithoutLastSave args = loop args
-  where loop [] =
-          noop
-        loop [last] =
-          emitExpr last
-        loop (argh:argsTail) = do
-          emitExpr argh
-          emitStackSave
-          withNextIndex (loop argsTail)
-
 primitives :: Map String FnGen
 primitives = unaryPrims `union` binaryPrims
 
@@ -369,6 +360,9 @@ unaryPrims = fromList [ ("fxadd1"      , fxadd1)
                       , ("boolean?"    , isBoolean)
                       , ("char?"       , isChar)
                       , ("fxzero?"     , isFxZero)
+                      , ("pair?"       , isPair)
+                      , ("car"         , car)
+                      , ("cdr"         , cdr)
                       ]
 
 binaryPrims :: Map String FnGen
@@ -382,6 +376,7 @@ binaryPrims = fromList [ ("fx+"      , fxPlus)
                        , ("fx<="     , fxLessOrEq)
                        , ("fx>"      , fxGreater)
                        , ("fx>="     , fxGreaterOrEq)
+                       , ("cons"     , cons)
                        ]
 
 fxadd1 = UnaryFn $
@@ -486,6 +481,11 @@ notL = Predicate $ compareTo falseValue
 
 isFxZero :: FnGen
 isFxZero = Predicate $ compareTo 0
+
+isPair :: FnGen
+isPair = Predicate $ do
+  applyMask pairMask
+  compareTo (toInteger pairTag)
 
 fxLogNot :: FnGen
 fxLogNot = UnaryFn $ do
@@ -641,6 +641,30 @@ fxGreater = fxComparison Greater
 
 fxGreaterOrEq :: FnGen
 fxGreaterOrEq = fxComparison GreaterOrEq
+
+heapPosWithOffset :: Integer -> String
+heapPosWithOffset offset =
+  show offset ++ "(%ebp)"
+
+cons :: FnGen
+cons = BinaryFn _cons
+  where _cons reg1 eax = do
+          mov eax (heapPosWithOffset cdrOffset)
+          mov reg1 eax
+          mov eax (heapPosWithOffset carOffset)
+          mov "%ebp" eax
+          emit $ "orl $" ++ show pairTag ++ ", %eax"
+          subl "$8" "%ebp"
+
+car :: FnGen
+car = UnaryFn $ do
+  emit $ "subl $" ++ show pairTag ++ ", %eax"
+  mov (show carOffset ++ "(%eax)") eax
+
+cdr :: FnGen
+cdr = UnaryFn $ do
+  emit $ "subl $" ++ show pairTag ++ ", %eax"
+  mov (show cdrOffset ++ "(%eax)") eax
 
 insertFnBinding :: FnName -> Label -> Environment -> Environment
 insertFnBinding fnName label env =
