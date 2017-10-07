@@ -164,23 +164,30 @@ parseVarName :: Parser VarName
 parseVarName = many1 (satisfy (\x -> not (isSpace x || x == '(' || x == ')' )))
 
 parseBinding :: Parser Binding
-parseBinding = do
-  startList
+parseBinding = surroundedByParensOrBrackets $ do
   varName <- parseVarName
   atLeastOneSpace
   expr <- parseExpr
   spaces
-  endList
   return $ Binding varName expr
+
+endFor :: Char -> Char
+endFor '(' = ')'
+endFor '[' = ']'
+
+surroundedByParensOrBrackets :: Parser a -> Parser a
+surroundedByParensOrBrackets p = do
+  start <- (char '(') <|> (char '[')
+  v <- p
+  char $ endFor start
+  return v
 
 parseLetOrLetStar :: Parser Expr
 parseLetOrLetStar = do
   string "let"
   maybeStar <- optionMaybe (char '*')
   atLeastOneSpace
-  startList
-  bindings <- parseBinding `sepBy` atLeastOneSpace
-  endList
+  bindings <- surroundedByParensOrBrackets $ parseBinding `sepBy` atLeastOneSpace
   spaces
   body <- parseExpr
   let constr = if maybeStar == Nothing then Let else LetStar

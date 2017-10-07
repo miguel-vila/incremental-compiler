@@ -326,8 +326,26 @@ pairTests =
     ~> "7"
   , car (cdr (cons (fx 5) (cons (fx 4) (fx 7))))
     ~> "4"
-  , (car $ car (cons (cons (fx 3) (fx 8)) (fx 1)))
+  , car (car (cons (cons (fx 3) (fx 8)) (fx 1)))
     ~> "3"
+  , car (car (cons (cons (fx 12) (fx 3)) (cons _True _False)))
+    ~> "12"
+  , cons (fx 1) (fx 2)
+    ~> "(1 . 2)"
+  , Let [ Binding "t" (Let [ Binding "t" (Let [ Binding "t" (Let [ Binding "t" (cons (fx 1) (fx 2))] (var "t")) ] (var "t"))] (var "t"))] (var "t")
+    ~> "(1 . 2)"
+  , cons (fx 1) (cons (fx 2) (cons (fx 3) (cons (fx 4) (fx 5))))
+    ~> "(1 2 3 4 . 5)"
+  , Let [ Binding "x" (L Nil)]
+           (Let [ Binding "x" $ PrimitiveApp "cons" [var "x",var "x"] ]
+                (Let [ Binding "x" $ PrimitiveApp "cons" [var "x", var "x"]]
+                     (Let [ Binding "x" $ PrimitiveApp "cons" [var "x", var "x"] ]
+                          (PrimitiveApp "cons" [var "x",var "x"]))))
+    ~> "((((()) ()) (()) ()) ((()) ()) (()) ())"
+  , (cons (Let [Binding "x" _True] (Let [Binding "y" (cons (var "x") (var "x"))] (cons (var "x") (var "y"))))
+        (cons (Let [Binding "x" _False] (Let [Binding "y" (cons (var "x") (var "x"))] (cons (var "y") (var "x"))))
+         (L Nil)))
+    ~> "((#t #t . #t) ((#f . #f) . #f))"
   ]
 
 executeTestCases :: [TestCase] -> Expectation
@@ -344,7 +362,7 @@ compileAndRunSpec = describe "CompileAndExecute" $ do
   it "evaluates number expressions" $ executeExprTestCases intTests
   it "evaluates boolean expressions" $ executeExprTestCases boolTests
   it "evaluates character expressions" $ executeExprTestCases charTests
-  it "evaluates nil" $ (Expr nil) `whenRunShouldPrint` "nil"
+  it "evaluates nil" $ (Expr nil) `whenRunShouldPrint` "()"
   it "evaluates unary primitive invocations" $ executeExprTestCases unaryPrimitiveTests
   it "evaluates fx+ invocations" $ executeExprTestCases fxPlusTests
   it "evaluates fx- invocations" $ executeExprTestCases fxMinusTests

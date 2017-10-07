@@ -40,26 +40,50 @@ static void deallocate_protected_space(char* p, int size){
 
 typedef unsigned int ptr;
 
-char* toString(ptr value) {
-  char* str = (char *) malloc(15);
-  if((value & 0b11) == 0) {
-    sprintf(str, "%d", ((int)value) >> 2);
-  } else if(value == 0b00101111) {
-    sprintf(str, "#f");
-  } else if(value == 0b01101111) {
-    sprintf(str, "#t");
-  } else if(value == 0b00111111) {
-    sprintf(str, "nil");
-  } else if((value & 0b1111) == 0b1111) {
-    sprintf(str, "#\\%c", value >> 8);
-  } else {
-    sprintf(str, "<unknown: %d>",value);
-  }
-  return str;
+int isNil(ptr value) {
+  return value == 0b00111111;
+}
+
+int isPair(ptr value) {
+  return (value & 0b111) == 0b001;
 }
 
 void print_ptr(ptr value) {
-  printf("%s\n", toString(value));
+  if((value & 0b11) == 0) {
+    printf("%d", ((int)value) >> 2);
+  } else if(value == 0b00101111) {
+    printf("#f");
+  } else if(value == 0b01101111) {
+    printf("#t");
+  } else if(isNil(value)) {
+    printf("()");
+  } else if((value & 0b1111) == 0b1111) {
+    printf("#\\%c", value >> 8);
+  } else if(isPair(value)) {
+    ptr pair_ptr = value - 1;
+    ptr car = *((ptr*)(pair_ptr-4));
+    ptr cdr = *((ptr*)(pair_ptr-8));
+    printf("(");
+    print_ptr(car);
+    while(1) {
+      if(isNil(cdr))
+        break;
+      if(isPair(cdr)) {
+        pair_ptr = cdr - 1;
+        car = *((ptr*)(pair_ptr-4));
+        cdr = *((ptr*)(pair_ptr-8));
+        printf(" ");
+        print_ptr(car);
+      } else {
+        printf(" . ");
+        print_ptr(cdr);
+        break;
+      }
+    }
+    printf(")");
+  } else {
+    printf("<unknown: %d>",value);
+  }
 }
 
 int main(int argc, char** argv){
@@ -71,6 +95,7 @@ int main(int argc, char** argv){
   char* heap_base = heap_top + heap_size;
   context ctx;
   print_ptr(scheme_entry(&ctx, stack_base, heap_base));
+  printf("\n");
   deallocate_protected_space(stack_top, stack_size);
   deallocate_protected_space(heap_top, heap_size);
   return EX_OK;
