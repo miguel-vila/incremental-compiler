@@ -68,34 +68,34 @@ varRefsTests =
 letTests :: [ExprTestCase]
 letTests =
   [ "(let [(x 3) (y (fx- 4 5))] (fx* x y))"
-    ~> Let [ Binding "x" (fx 3)
-           , Binding "y" (binOp "fx-" (fx 4) (fx 5))
+    ~> _let [ "x" ~> (fx 3)
+           , "y" ~> (binOp "fx-" (fx 4) (fx 5))
            ] (binOp "fx*" (var "x") (var "y"))
   , "(let ((x 3) (y (fx- 4 5))) (fx* x y))"
-    ~> Let [ Binding "x" (fx 3)
-           , Binding "y" (binOp "fx-" (fx 4) (fx 5))
+    ~> _let [ "x" ~> (fx 3)
+           , "y" ~> (binOp "fx-" (fx 4) (fx 5))
            ] (binOp "fx*" (var "x") (var "y"))
   , "(let* ((x 3) (y (fx- x 5))) (fx* x y))"
-    ~> LetStar [ Binding "x" (fx 3)
-               , Binding "y" (binOp "fx-" (var "x") (fx 5))
-               ] (binOp "fx*" (var "x") (var "y"))
+    ~> _letStar [ "x" ~> (fx 3)
+                , "y" ~> (binOp "fx-" (var "x") (fx 5))
+                ] (binOp "fx*" (var "x") (var "y"))
   , "(let ([t (let ([t (let ([t (let ([t (cons 1 2)]) t)]) t)]) t)]) t)"
-    ~> Let [ Binding "t" (Let [ Binding "t" (Let [ Binding "t" (Let [ Binding "t" (cons (fx 1) (fx 2))] (var "t")) ] (var "t"))] (var "t"))] (var "t")
+    ~> _let [ "t" ~> (_let [ "t" ~> (_let [ "t" ~> (_let [ "t" ~> (cons (fx 1) (fx 2))] (var "t")) ] (var "t"))] (var "t"))] (var "t")
   , concat [ "(let ([x ()])"
            , "     (let ([x (cons x x)])"
            , "            (let ([x (cons x x)])"
            , "                     (let ([x (cons x x)])"
            , "                                (cons x x)))))" ]
-    ~> Let [ Binding "x" (L Nil)]
-           (Let [ Binding "x" $ PrimitiveApp "cons" [var "x",var "x"] ]
-                (Let [ Binding "x" $ PrimitiveApp "cons" [var "x", var "x"]]
-                     (Let [ Binding "x" $ PrimitiveApp "cons" [var "x", var "x"] ]
-                          (PrimitiveApp "cons" [var "x",var "x"]))))
+    ~> _let [ "x" ~> (L Nil)]
+           (_let [ "x" ~> cons (var "x") (var "x") ]
+                (_let [ "x" ~> cons (var "x") (var "x")]
+                     (_let [ "x" ~> cons (var "x") (var "x") ]
+                          (cons (var "x") (var "x")))))
   , concat [ "(cons (let ([x #t]) (let ([y (cons x x)]) (cons x y)))"
            , "         (cons (let ([x #f]) (let ([y (cons x x)]) (cons y x)))"
            , "                        ()))" ]
-    ~> (cons (Let [Binding "x" _True] (Let [Binding "y" (cons (var "x") (var "x"))] (cons (var "x") (var "y"))))
-        (cons (Let [Binding "x" _False] (Let [Binding "y" (cons (var "x") (var "x"))] (cons (var "y") (var "x"))))
+    ~> (cons (_let ["x" ~> _True] (_let ["y" ~> (cons (var "x") (var "x"))] (cons (var "x") (var "y"))))
+        (cons (_let ["x" ~> _False] (_let ["y" ~> (cons (var "x") (var "x"))] (cons (var "y") (var "x"))))
          (L Nil)))
   ]
 
@@ -107,6 +107,18 @@ fnAppTests =
     ~> (UserFnApp "f" [])
   , "(my-fn x 3)"
     ~> binApp "my-fn" (var "x") (fx 3)
+  ]
+
+doTests :: [ExprTestCase]
+doTests =
+  [ (unlines [ "(let ([v (make-vector 5 2)])"
+             , "  (do (vector-set! v 1 42)"
+             , "      (vector-ref v 1)))"
+             ])
+    ~> (_let [ "v" <~ (vector (fx 5) (fx 2)) ]
+        (Do [ (vectorSet (var "v") (fx 1) (fx 42))
+            , (vectorRef (var "v") (fx 1))
+            ]))
   ]
 
 programTests :: [ProgramTestCase]
@@ -139,4 +151,5 @@ parserSpec = describe "Parser" $ do
   it "parses var references" $ executeExprTestCases varRefsTests
   it "parses let and let* expressions" $ executeExprTestCases letTests
   it "parses user function invocations" $ executeExprTestCases fnAppTests
+  it "parses do invocations" $ executeExprTestCases doTests
   it "parses programs" $ executeProgramTestCases programTests

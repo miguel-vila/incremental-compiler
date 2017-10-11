@@ -315,7 +315,7 @@ programTests =
 
 pairTests :: [ExprTestCase]
 pairTests =
-  [ Let [ Binding "myPair" (binOp "cons" (fx 5) (fx 10)) ]
+  [ _let [ "myPair" <~ (binOp "cons" (fx 5) (fx 10)) ]
     (unaryOp "pair?" (var "myPair"))
     ~> "#t"
   , unaryOp "pair?" (fx 3)
@@ -332,20 +332,68 @@ pairTests =
     ~> "12"
   , cons (fx 1) (fx 2)
     ~> "(1 . 2)"
-  , Let [ Binding "t" (Let [ Binding "t" (Let [ Binding "t" (Let [ Binding "t" (cons (fx 1) (fx 2))] (var "t")) ] (var "t"))] (var "t"))] (var "t")
+  , _let [ "t" <~ (_let [ "t" <~ (_let [ "t" <~ (_let [ "t" <~ (cons (fx 1) (fx 2))] (var "t")) ] (var "t"))] (var "t"))] (var "t")
     ~> "(1 . 2)"
   , cons (fx 1) (cons (fx 2) (cons (fx 3) (cons (fx 4) (fx 5))))
     ~> "(1 2 3 4 . 5)"
-  , Let [ Binding "x" (L Nil)]
-           (Let [ Binding "x" $ PrimitiveApp "cons" [var "x",var "x"] ]
-                (Let [ Binding "x" $ PrimitiveApp "cons" [var "x", var "x"]]
-                     (Let [ Binding "x" $ PrimitiveApp "cons" [var "x", var "x"] ]
-                          (PrimitiveApp "cons" [var "x",var "x"]))))
+  , _let [ "x" <~ (L Nil) ]
+           (_let [ "x" <~ cons (var "x") (var "x") ]
+                (_let [ "x" <~ cons (var "x") (var "x") ]
+                     (_let [ "x" <~ cons (var "x") (var "x") ]
+                          (cons (var "x") (var "x")))))
     ~> "((((()) ()) (()) ()) ((()) ()) (()) ())"
-  , (cons (Let [Binding "x" _True] (Let [Binding "y" (cons (var "x") (var "x"))] (cons (var "x") (var "y"))))
-        (cons (Let [Binding "x" _False] (Let [Binding "y" (cons (var "x") (var "x"))] (cons (var "y") (var "x"))))
+  , (cons (_let [ "x" <~ _True] (_let [ "y" <~ (cons (var "x") (var "x"))] (cons (var "x") (var "y"))))
+        (cons (_let [ "x" <~ _False] (_let [ "y" <~ (cons (var "x") (var "x"))] (cons (var "y") (var "x"))))
          (L Nil)))
     ~> "((#t #t . #t) ((#f . #f) . #f))"
+  ]
+
+vectorTests :: [ExprTestCase]
+vectorTests =
+  [ unaryOp "vector?" (vector (fx 3) (fx 1))
+    ~> "#t"
+  , unaryOp "vector?" (fx 3)
+    ~> "#f"
+  , unaryOp "vector-length" (vector (fx 12) (fx 666))
+    ~> "12"
+  , unaryOp "vector-length" (vector (_let [ "x" <~ (binOp "fx+" (fx 4) (fx 7))
+                                          , "y" <~ (fx 9)]
+                                     (binOp "fx+" (var "x") (var "y"))) (fx 666))
+    ~> "20"
+  , vectorRef (vector (fx 3) (fx 456)) (fx 0)
+    ~> "456"
+  , _let [ "v" <~ (vector (fx 4) (fx 3)) ]
+    (binOp "fx+"
+      (binOp "fx+"
+        (vectorRef (var "v") (fx 0))
+        (vectorRef (var "v") (fx 1)))
+      (binOp "fx+"
+        (vectorRef (var "v") (fx 2))
+        (vectorRef (var "v") (fx 3)))
+    )
+    ~> "12"
+  , _let [ "v" <~ (vector (fx 5) (fx 2)) ]
+    (Do [ (vectorSet (var "v") (fx 1) (fx 42))
+        , (vectorRef (var "v") (fx 1))
+        ])
+    ~> "42"
+  , _let [ "v" <~ (vector (fx 5) (fx 7)) ]
+    (Do [ (vectorSet (var "v") (fx 1) (fx 42))
+        , (vectorRef (var "v") (fx 0))
+        ])
+    ~> "7"
+  , _let [ "v" <~ (vector (fx 4) (fx 6)) ]
+    (Do [ (vectorSet (var "v") (fx 1) (fx 42))
+        , (vectorSet (var "v") (fx 2) (fx 10))
+        , (binOp "fx+"
+           (binOp "fx+"
+            (vectorRef (var "v") (fx 0))
+            (vectorRef (var "v") (fx 1)))
+           (binOp "fx+"
+            (vectorRef (var "v") (fx 2))
+            (vectorRef (var "v") (fx 3))))
+        ])
+    ~> "64"
   ]
 
 executeTestCases :: [TestCase] -> Expectation
@@ -377,3 +425,4 @@ compileAndRunSpec = describe "CompileAndExecute" $ do
   it "evaluates let* expressions" $ executeExprTestCases letStarExpressionTests
   it "evaluates programs that define functions" $ executeLetRecTestCases programTests
   it "evaluates pairs expressions" $ executeExprTestCases pairTests
+  it "evaluates vector expressions" $ executeExprTestCases vectorTests

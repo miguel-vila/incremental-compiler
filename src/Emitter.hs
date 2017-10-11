@@ -8,34 +8,7 @@ import InmediateRepr
 import Control.Monad.State.Lazy
 import Data.HashMap hiding (map)
 import Control.Monad.Reader
-
-type Code = [String]
-
--- The id for the function labels
-type CodeGenState = Int
-
-type IsTail = Bool
-
-type GenReaderState = StateT CodeGenState (ReaderT (StackIndex, Environment, IsTail) (Writer Code))
-
-type CodeGen = GenReaderState ()
-
-data FnGen = UnaryFn CodeGen
-           | BinaryFn (Register -> Register -> CodeGen)
-           | Predicate CodeGen
-           | Comparison ComparisonType (Register -> CodeGen)
-
-data Environment = Environment
-  { varEnv :: Map VarName StackIndex
-  , fnEnv  :: Map VarName Label
-  }
-
-type FnName = String
-
-type FnEnvironment = Map FnName Label
-
-wordsize :: Integer
-wordsize = 4
+import CodeGen
 
 initialState :: CodeGenState
 initialState = 0
@@ -57,28 +30,7 @@ executeGen codeGen = execWriter $
   runReaderT (evalStateT codeGen initialState)
              (initialStackIndex, initialEnvironment, initialIsTail)
 
-tabbed :: String -> String
-tabbed s = "    " ++ s
-
-emit :: String -> CodeGen
-emit s = tell [ tabbed s ]
-
-emitAll :: [String] -> CodeGen
-emitAll = tell
-
-emitNoTab :: String -> CodeGen
-emitNoTab s = tell [s]
-
-noop :: CodeGen
-noop = tell []
-
-emitFunctionHeader :: Label -> CodeGen
-emitFunctionHeader label = do
-  emitNoTab $ ".globl " ++ label
-  emitNoTab $ ".type " ++ label ++ ", @function"
-  emitLabel label
-
-saveRegistersInsts :: [String]
+saveRegistersInsts :: Code
 saveRegistersInsts = map tabbed
   [ "movl 4(%esp), %ecx"  -- first parameter (4%esp) points to context struct
   , "movl %ebx, 4(%ecx)"
@@ -88,13 +40,13 @@ saveRegistersInsts = map tabbed
   , "movl %esp, 28(%ecx)"
   ]
 
-loadHeapAndStackPointersInsts :: [String]
+loadHeapAndStackPointersInsts :: Code
 loadHeapAndStackPointersInsts = map tabbed
   [ "movl 12(%esp), %ebp" -- load heap  pointer from 3rd parameter
   , "movl 8(%esp) , %esp" -- load stack pointer from 2nd parameter
   ]
 
-restoreRegistersInsts :: [String]
+restoreRegistersInsts :: Code
 restoreRegistersInsts = map tabbed
   [ "movl 4(%ecx), %ebx"  -- restore C's registers
   , "movl 16(%ecx), %esi"
@@ -134,23 +86,11 @@ emitBooleanByComparison compareType = do
 ifEqReturnTrue :: CodeGen
 ifEqReturnTrue = emitBooleanByComparison Eq
 
-getEnv :: GenReaderState Environment
-getEnv = fmap (\(_,env,_) -> env) ask
-
-getStackIndex :: GenReaderState StackIndex
-getStackIndex = fmap (\(si,_,_) -> si) ask
-
-isInTailPosition :: GenReaderState IsTail
-isInTailPosition = fmap (\(_,_,isTail) -> isTail) ask
-
 getVarIndex :: VarName -> GenReaderState StackIndex
 getVarIndex varName = do
   env <- getEnv
   let Just si = lookup varName (varEnv env) -- @TODO handle this
   return si
-
-ret :: CodeGen
-ret = emit "ret"
 
 emitReturnIfTail :: CodeGen
 emitReturnIfTail = do
@@ -183,6 +123,8 @@ emitExprBase (VarRef varName) = do
   emitReturnIfTail
 emitExprBase (UserFnApp fnName args) =
   emitUserFnApp fnName args
+emitExprBase (Do exprs) =
+  mapM_ emitExprBase exprs -- last expression should leave it's result at %eax
 emitExprBase NoOp =
   noop
 
@@ -212,10 +154,6 @@ getFnLabel fnName = do
   let Just label = lookup fnName (fnEnv env) -- @TODO handle this
   return label
 
-withNextIndex :: GenReaderState a -> GenReaderState a
-withNextIndex =
-  local (\(si,env,isTail) -> (nextStackIndex si, env, isTail))
-
 collapseStack :: Int -> StackIndex -> StackIndex -> CodeGen
 collapseStack 0 _ _ =
   noop
@@ -236,10 +174,6 @@ emitUserFnApp fnName args = do
     else do emitAdjustBase (\si -> si + wordsize)
             emit $ "call " ++ label
             emitAdjustBase (\si -> - si - wordsize)
-
-withEnv :: Environment -> GenReaderState a -> GenReaderState a
-withEnv env =
-  local (\(si,_,isTail) -> (si,env,isTail))
 
 -- @TODO refactor repetition between these 2 functions
 emitLet :: [Binding] -> Expr -> CodeGen
@@ -275,6 +209,10 @@ emitPrimitiveApp fnName fnGen args =
       if elem fnName canBeOptimized
       then emitBinaryFnOpt codeGen args
       else emitBinaryFnApp codeGen args
+    NaryFn codeGen -> do
+      emitArgsWithoutLastSave args
+      si <- getStackIndex
+      codeGen si
     Predicate predicate -> do
       emitArgs args -- @TODO check # of args
       predicate
@@ -322,20 +260,6 @@ emitBinaryFnOpt codeGen args = case args of
   _              ->
     emitBinaryFnApp codeGen args
 
-movl :: Register -> Register -> CodeGen
-movl = binOp "movl"
-
-emitStackLoad :: StackIndex -> CodeGen
-emitStackLoad si  = movl (stackValueAt si) eax
-
-emitStackSave :: CodeGen
-emitStackSave = do
-  sv <- stackValueAtIndex
-  movl eax sv
-
-nextStackIndex :: StackIndex -> StackIndex
-nextStackIndex si = si - wordsize
-
 emitArgs :: [Expr] -> CodeGen
 emitArgs args = loop args
   where loop []              =
@@ -345,39 +269,60 @@ emitArgs args = loop args
           emitStackSave
           withNextIndex (loop argsTail)
 
-primitives :: Map String FnGen
-primitives = unaryPrims `union` binaryPrims
+emitArgsWithoutLastSave :: [Expr] -> CodeGen
+emitArgsWithoutLastSave args = loop args
+  where loop []              =
+          noop
+        loop [arg]           =
+          emitExpr arg
+        loop (argh:argsTail) = do
+          emitExpr argh
+          emitStackSave
+          withNextIndex (loop argsTail)
 
-unaryPrims :: Map String FnGen
-unaryPrims = fromList [ ("fxadd1"      , fxadd1)
-                      , ("fxsub1"      , fxsub1)
-                      , ("char->fixnum", charToFixNum)
-                      , ("fixnum->char", fixNumToChar)
-                      , ("fxlognot"    , fxLogNot)
-                      , ("fixnum?"     , isFixnum)
-                      , ("null?"       , isNull)
-                      , ("not"         , notL)
-                      , ("boolean?"    , isBoolean)
-                      , ("char?"       , isChar)
-                      , ("fxzero?"     , isFxZero)
-                      , ("pair?"       , isPair)
-                      , ("car"         , car)
-                      , ("cdr"         , cdr)
+primitives :: Map FunctionName FnGen
+primitives = unaryPrims `union`
+  binaryPrims `union`
+  naryPrims
+
+unaryPrims :: Map FunctionName FnGen
+unaryPrims = fromList [ ("fxadd1"        , fxadd1)
+                      , ("fxsub1"        , fxsub1)
+                      , ("char->fixnum"  , charToFixNum)
+                      , ("fixnum->char"  , fixNumToChar)
+                      , ("fxlognot"      , fxLogNot)
+                      , ("fixnum?"       , isFixnum)
+                      , ("null?"         , isNull)
+                      , ("not"           , notL)
+                      , ("boolean?"      , isBoolean)
+                      , ("char?"         , isChar)
+                      , ("fxzero?"       , isFxZero)
+                      , ("pair?"         , isPair)
+                      , ("car"           , car)
+                      , ("cdr"           , cdr)
+                      , ("vector?"       , isVector)
+                      , ("vector-length" , vectorLength)
                       ]
 
-binaryPrims :: Map String FnGen
-binaryPrims = fromList [ ("fx+"      , fxPlus)
-                       , ("fx-"      , fxMinus)
-                       , ("fx*"      , fxTimes)
-                       , ("fxlogand" , fxLogAnd)
-                       , ("fxlogor"  , fxLogOr)
-                       , ("fx="      , fxEq)
-                       , ("fx<"      , fxLess)
-                       , ("fx<="     , fxLessOrEq)
-                       , ("fx>"      , fxGreater)
-                       , ("fx>="     , fxGreaterOrEq)
-                       , ("cons"     , cons)
+binaryPrims :: Map FunctionName FnGen
+binaryPrims = fromList [ ("fx+"         , fxPlus)
+                       , ("fx-"         , fxMinus)
+                       , ("fx*"         , fxTimes)
+                       , ("fxlogand"    , fxLogAnd)
+                       , ("fxlogor"     , fxLogOr)
+                       , ("fx="         , fxEq)
+                       , ("fx<"         , fxLess)
+                       , ("fx<="        , fxLessOrEq)
+                       , ("fx>"         , fxGreater)
+                       , ("fx>="        , fxGreaterOrEq)
+                       , ("cons"        , cons)
+                       , ("make-vector" , makeVector)
+                       , ("vector-ref"  , vectorRef)
                        ]
+
+naryPrims :: Map FunctionName FnGen
+naryPrims = fromList [ ("vector-set!" , vectorSet)
+                     ]
 
 fxadd1 = UnaryFn $
   emit $ "addl $" ++ (show $ inmediateRepr $ FixNum 1) ++ ", %eax"
@@ -396,43 +341,6 @@ fixNumToChar = UnaryFn $ do
   emit $ "sall $" ++ show (charShift - intShift)  ++ ", %eax" -- move to the left 6 bits
   emit $ "orl $" ++ show charTag ++ ", %eax" -- add char tag
 
-compareTo :: Integer -> CodeGen
-compareTo n =
-  emit $ "cmp $" ++ show n ++ ", %eax"
-
-data ComparisonType = Eq
-                    | Less
-                    | LessOrEq
-                    | Greater
-                    | GreaterOrEq
-                    | NotEq
-
-opposing :: ComparisonType -> ComparisonType
-opposing Eq          = NotEq
-opposing Less        = GreaterOrEq
-opposing LessOrEq    = Greater
-opposing Greater     = LessOrEq
-opposing GreaterOrEq = Less
-opposing NotEq       = Eq
-
-type Label = String
-
-comparisonToJump :: ComparisonType -> String
-comparisonToJump Eq          = "je"
-comparisonToJump Less        = "jl"
-comparisonToJump LessOrEq    = "jle"
-comparisonToJump Greater     = "jg"
-comparisonToJump GreaterOrEq = "jge"
-comparisonToJump NotEq       = "jne"
-
-comparisonToSet :: ComparisonType -> String
-comparisonToSet Eq          = "sete"
-comparisonToSet Less        = "setl"
-comparisonToSet LessOrEq    = "setle"
-comparisonToSet Greater     = "setg"
-comparisonToSet GreaterOrEq = "setge"
-comparisonToSet NotEq       = "setne"
-
 ifComparisonJumpTo :: ComparisonType -> Label -> CodeGen
 ifComparisonJumpTo compareType label =
   emit $ comparisonToJump compareType ++" " ++ label
@@ -443,20 +351,12 @@ ifEqJumpTo = ifComparisonJumpTo Eq
 ifNotEqJumpTo :: Label -> CodeGen
 ifNotEqJumpTo = ifComparisonJumpTo NotEq
 
-jumpTo :: Label -> CodeGen
-jumpTo label =
-  emit $ "jmp " ++ label
-
 emitIfNotTail :: CodeGen -> CodeGen
 emitIfNotTail codeGen = do
   isTail <- isInTailPosition
   if not isTail
     then codeGen
     else noop
-
-emitLabel :: Label -> CodeGen
-emitLabel label =
-  emitNoTab $ label ++ ":"
 
 isNull :: FnGen
 isNull = Predicate $ compareTo nilValue
@@ -487,23 +387,21 @@ isPair = Predicate $ do
   applyMask pairMask
   compareTo (toInteger pairTag)
 
+isVector :: FnGen
+isVector = Predicate $ do
+  applyMask vectorMask
+  compareTo (toInteger vectorTag)
+
+vectorLength :: FnGen
+vectorLength = UnaryFn $ do
+  emit $ "sub $" ++ show vectorTag ++ ", %eax"
+  mov "-4(%eax)" eax
+
 fxLogNot :: FnGen
 fxLogNot = UnaryFn $ do
   emit "not %eax"
   emit "sar $2, %eax"
   emit "sal $2, %eax"
-
-uniqueLabel :: GenReaderState Label
-uniqueLabel = do
-  s <- get
-  modify (+1)
-  return $ "L_" ++ show s
-
-uniqueLambdaLabel :: String -> GenReaderState Label
-uniqueLambdaLabel fnName = do
-  s <- get
-  modify (+1)
-  return $ "Lambda_" ++ show s
 
 emitIf :: Expr -> Expr -> Expr -> CodeGen
 emitIf condition conseq altern = do
@@ -552,76 +450,19 @@ emitOr []            = emitExpr _True
 emitOr [test]        = emitExpr test
 emitOr (test : rest) = emitIf test NoOp (Or rest)
 
-type StackIndex = Integer
-
-stackValueAt :: StackIndex -> String
-stackValueAt si = (show si) ++ "(%esp)"
-
-stackValueAtIndex :: GenReaderState String
-stackValueAtIndex = do
-  si <- getStackIndex
-  return $ stackValueAt si
-
-type Inst = String
-type Op = String
-type Register = String
-
-binOp :: Op -> Register -> Register -> CodeGen
-binOp op reg1 reg2 =
-  emit $ op ++ " " ++ reg1 ++ ", " ++ reg2
-
-eax :: String
-eax = "%eax"
-
-addl :: Register -> Register -> CodeGen
-addl = binOp "addl"
-
 fxPlus :: FnGen
 fxPlus = BinaryFn addl
-
-mov :: Register -> Register -> CodeGen
-mov reg1 reg2 = binOp "mov" reg1 reg2
-
-subl :: Register -> Register -> CodeGen
-subl = binOp "subl"
 
 fxMinus :: FnGen
 fxMinus = BinaryFn $ \reg1 reg2 -> do
   subl reg2 reg1
   mov  reg1 reg2
 
-shr :: Int -> Register -> CodeGen
-shr n reg2 = binOp "shr" ("$" ++ show n) reg2
-
--- normally when we multiply two numbers they are shifted 2 bits
--- to the right. That's: a number x is represented by 4*x
--- So if we want to get the product of x and y we can produce
--- the number 4*x*y. This can be done by shifting one of the numbers
--- two bits to the left and then multiplying it by the other.
--- (4x) * y
--- 4(x*y)
-fxTimes :: FnGen
-fxTimes = BinaryFn $ \reg1 reg2 -> do
-  shr intShift reg2
-  emit $ "mull " ++ reg1
-
-_and :: Register -> Register -> CodeGen
-_and = binOp "and"
-
 fxLogAnd :: FnGen
 fxLogAnd = BinaryFn _and
 
-_or :: Register -> Register -> CodeGen
-_or = binOp "or"
-
 fxLogOr :: FnGen
 fxLogOr = BinaryFn _or
-
-cmp :: Register -> Register -> CodeGen
-cmp = binOp "cmp"
-
-compareEaxToStackValue :: Register -> CodeGen
-compareEaxToStackValue si = cmp "%eax" si
 
 fxComparison :: ComparisonType -> FnGen
 fxComparison comparisonType =
@@ -656,6 +497,26 @@ cons = BinaryFn _cons
           emit $ "orl $" ++ show pairTag ++ ", %eax"
           subl "$8" "%ebp"
 
+makeVector :: FnGen
+makeVector = BinaryFn mkVector
+  where mkVector n eax = do
+          loopLabel <- uniqueLabel
+          mov n "%ebx"
+          mov "%ebx" (heapPosWithOffset (-4)) -- save length
+          mov "%ebp" "%ebx" -- %ebx will be iterator
+          emit $ "sub $" ++ show vectorLengthOffset ++", %ebx" -- move it down after saving the length
+          mov "%ebp" "%edx" -- %edx will be the limit
+          emit $ "sub " ++ n ++ ", %edx" -- for each of the elements (4x)
+          emit $ "sub $4, %edx" -- for the length
+          emitLabel loopLabel
+          emit $ "sub $4, %ebx"
+          mov eax "(%ebx)" -- save the element in the i-th entry
+          emit $ "cmp %edx, %ebx"
+          emit $ "jne " ++ loopLabel
+          mov "%ebp" eax
+          emit $ "or $" ++ show vectorTag ++ ", %eax"
+          mov "%ebx" "%ebp"
+
 car :: FnGen
 car = UnaryFn $ do
   emit $ "subl $" ++ show pairTag ++ ", %eax"
@@ -666,9 +527,26 @@ cdr = UnaryFn $ do
   emit $ "subl $" ++ show pairTag ++ ", %eax"
   mov (show cdrOffset ++ "(%eax)") eax
 
-insertFnBinding :: FnName -> Label -> Environment -> Environment
-insertFnBinding fnName label env =
-  env { fnEnv = insert fnName label (fnEnv env) }
+vectorRef :: FnGen
+vectorRef = BinaryFn vctRef
+  where vctRef vec pos = do
+          mov vec "%ebx"
+          emit $ "sub $" ++ show vectorTag ++ ", %ebx"
+          emit $ "sub $" ++ show vectorContentOffset ++ ", %ebx"
+          emit $ "sub " ++ pos ++ ", %ebx"
+          mov "(%ebx)" eax
+
+vectorSet :: FnGen
+vectorSet = NaryFn $ \si ->
+  let vec = stackValueAt si                  -- 1st arg
+      pos = stackValueAt (nextStackIndex si) -- 2nd arg
+      val = "%eax"                           -- 3rd arg
+  in do
+    mov vec "%ebx"
+    emit $ "sub $" ++ show vectorTag ++ ", %ebx"
+    emit $ "sub $" ++ show vectorContentOffset ++ ", %ebx"
+    emit $ "sub " ++ pos ++ ", %ebx"
+    mov val "(%ebx)"
 
 emitLambda :: Label -> Lambda -> CodeGen
 emitLambda label lmb = do

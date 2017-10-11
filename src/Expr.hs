@@ -22,6 +22,7 @@ data Expr = L Literal
           | VarRef VarName
           | NoOp
           | UserFnApp FunctionName [Expr]
+          | Do [Expr]
           deriving (Show, Eq)
 
 data Literal = FixNum Integer
@@ -32,7 +33,9 @@ data Literal = FixNum Integer
 
 type VarName = String
 
-data LambdaBinding = LambdaBinding { functionName :: String
+type FnName = String
+
+data LambdaBinding = LambdaBinding { functionName :: FnName
                                    , lambda       :: Lambda
                                    } deriving (Show, Eq)
 

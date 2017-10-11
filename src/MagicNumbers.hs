@@ -38,3 +38,15 @@ carOffset = -4
 
 cdrOffset :: Integer
 cdrOffset = - 8
+
+vectorTag :: Int
+vectorTag = 5 -- 00000101
+
+vectorMask :: Integer
+vectorMask = 7 -- 00000111
+
+vectorLengthOffset :: Integer
+vectorLengthOffset = 4
+
+vectorContentOffset :: Integer
+vectorContentOffset = 8

@@ -1,6 +1,7 @@
 module EmitterSpec(emitterSpec) where
 
 import Expr
+import CodeGen
 import Emitter hiding (binOp)
 import Test.Hspec
 import Control.Exception (evaluate)

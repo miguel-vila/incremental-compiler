@@ -14,7 +14,7 @@ compileAndExecute :: Program -> IO String
 compileAndExecute source = do
   let programText = compileCode source
   writeFile "tmp-program.s" programText
-  let command = "gcc -m32 -o tmp-program runtime.c tmp-program.s"
+  let command = "gcc -m32 -o tmp-program runtime/runtime.c tmp-program.s"
   callCommand command
   (_,handle,_,processHandle) <- runInteractiveCommand "./tmp-program"
   exitCode <- waitForProcess processHandle

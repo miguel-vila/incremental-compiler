@@ -6,6 +6,7 @@ import Parser
 import Emitter
 import System.Environment(getArgs)
 import System.IO
+import System.Process
 import System.Exit
 import Data.String.Utils
 
@@ -35,9 +36,13 @@ parse fileContent =
     Right ast ->
       return ast
 
-replaceFormatWithS :: String -> String
-replaceFormatWithS sourceFileName =
-  (concat $ init (split "." sourceFileName)) ++ ".s"
+removeFormat :: String -> String
+removeFormat sourceFileName =
+  (concat $ init (split "." sourceFileName))
+
+compileGCC :: String -> String -> IO ()
+compileGCC sourceFileName outputFilename =
+  callCommand $ "gcc -m32 -g -o " ++ outputFilename ++ " runtime/runtime.c " ++ sourceFileName
 
 main :: IO ()
 main = do
@@ -46,6 +51,8 @@ main = do
      fileContent <- readFile fileName
      ast <- parse fileContent
      let compiledCode = unlines $ compile ast
-     let compiledCodeFileName = replaceFormatWithS fileName
+     let fileNameWithoutFormat = removeFormat fileName
+     let compiledCodeFileName = fileNameWithoutFormat ++ ".s"
      writeFile compiledCodeFileName compiledCode
-     putStrLn $ "Successful compilation! You can see the file: " ++ compiledCodeFileName
+     compileGCC compiledCodeFileName fileNameWithoutFormat
+     putStrLn $ "Successful compilation! You can see the file: " ++ fileNameWithoutFormat

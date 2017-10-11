@@ -39,4 +39,23 @@ car = unaryOp "car"
 cdr :: Expr -> Expr
 cdr = unaryOp "cdr"
 
+vector :: Expr -> Expr -> Expr
+vector = binOp "make-vector"
+
+vectorRef :: Expr -> Expr -> Expr
+vectorRef = binOp "vector-ref"
+
+_let :: [(String, Expr)] -> Expr -> Expr
+_let bindings body =
+  Let (map (\(name,expr) -> Binding name expr) bindings) body
+
+_letStar :: [(String, Expr)] -> Expr -> Expr
+_letStar bindings body =
+  LetStar (map (\(name,expr) -> Binding name expr) bindings) body
+
+vectorSet :: Expr -> Expr -> Expr -> Expr
+vectorSet vector position value =
+  PrimitiveApp "vector-set!" [vector, position, value]
+
 (~>) = (,)
+(<~) = (,)

@@ -1,5 +1,6 @@
 module Parser where
 
+import Control.Monad
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Error
 import Data.HashMap hiding (map)
@@ -74,7 +75,8 @@ parseExpr =
     (parseIf <|>
      try parseAndOr <|>
      parseLetOrLetStar <|>
-     parseFnApp)
+     parseFnApp <|>
+     parseDo)
     <* endList) <|>
   parseVarRef
 
@@ -151,6 +153,12 @@ parseListExpr :: Parser [Expr]
 parseListExpr =
   parseExpr `sepBy` atLeastOneSpace
 
+reservedNames :: [String]
+reservedNames = [ "or"
+                , "and"
+                , "do"
+                ]
+
 parseAndOr :: Parser Expr
 parseAndOr = do
   which <- (string "and") <|> (string "or")
@@ -161,7 +169,10 @@ parseAndOr = do
   return $ constr args
 
 parseVarName :: Parser VarName
-parseVarName = many1 (satisfy (\x -> not (isSpace x || x == '(' || x == ')' )))
+parseVarName =
+  let isValidChar x = not (isSpace x || x == '(' || x == ')' )
+  in do mapM_ (notFollowedBy . string) reservedNames
+        many1 (satisfy isValidChar)
 
 parseBinding :: Parser Binding
 parseBinding = surroundedByParensOrBrackets $ do
@@ -195,3 +206,10 @@ parseLetOrLetStar = do
 
 parseVarRef :: Parser Expr
 parseVarRef = VarRef <$> parseVarName
+
+parseDo :: Parser Expr
+parseDo = do
+  string "do"
+  atLeastOneSpace
+  exprs <- parseListExpr
+  return $ Do exprs
