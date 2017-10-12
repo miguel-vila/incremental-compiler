@@ -103,14 +103,26 @@ insertFnBinding :: FnName -> Label -> Environment -> Environment
 insertFnBinding fnName label env =
   env { fnEnv = insert fnName label (fnEnv env) }
 
+emitLiteral :: Integer -> CodeGen
+emitLiteral n =
+  movl ("$" ++ show n) "%eax"
+
+applyMask :: Integer -> CodeGen
+applyMask mask =
+  _and ("$" ++ show mask) "%eax"
+
+emitBooleanByComparison :: ComparisonType -> CodeGen
+emitBooleanByComparison compareType = do
+  emit $ comparisonToSet compareType ++ " %al"  -- set %al to the result of the comparison
+  emit $ "movzbl %al, %eax"                   -- mov %al to %eax and pad the remaining bits with 0: https://en.wikibooks.org/wiki/X86_Assembly/Data_Transfer#Move_with_zero_extend --> why is this needed?
+  emit $ "sal $6, %al"                        -- move the result bit 6 bits to the left
+  _or ("$" ++ show falseValue) "%al" -- or with the false value to return a "boolean" in the expected format
+
 emitFunctionHeader :: Label -> CodeGen
 emitFunctionHeader label = do
   emitNoTab $ ".globl " ++ label
   emitNoTab $ ".type " ++ label ++ ", @function"
   emitLabel label
-
-ret :: CodeGen
-ret = emit "ret"
 
 withNextIndex :: GenReaderState a -> GenReaderState a
 withNextIndex =
@@ -120,23 +132,20 @@ withEnv :: Environment -> GenReaderState a -> GenReaderState a
 withEnv env =
   local (\(si,_,isTail) -> (si,env,isTail))
 
-movl :: Register -> Register -> CodeGen
-movl = binaryOp "movl"
-
 emitStackLoad :: StackIndex -> CodeGen
-emitStackLoad si  = movl (stackValueAt si) eax
+emitStackLoad si  = movl (stackValueAt si) "%eax"
 
 emitStackSave :: CodeGen
 emitStackSave = do
   sv <- stackValueAtIndex
-  movl eax sv
+  movl "%eax" sv
 
 nextStackIndex :: StackIndex -> StackIndex
 nextStackIndex si = si - wordsize
 
 compareTo :: Integer -> CodeGen
 compareTo n =
-  emit $ "cmp $" ++ show n ++ ", %eax"
+  cmp ("$" ++ show n) "%eax"
 
 jumpTo :: Label -> CodeGen
 jumpTo label =
@@ -170,14 +179,14 @@ binaryOp :: Op -> Register -> Register -> CodeGen
 binaryOp op reg1 reg2 =
   emit $ op ++ " " ++ reg1 ++ ", " ++ reg2
 
-eax :: String
-eax = "%eax"
-
 addl :: Register -> Register -> CodeGen
 addl = binaryOp "addl"
 
 mov :: Register -> Register -> CodeGen
-mov reg1 reg2 = binaryOp "mov" reg1 reg2
+mov = binaryOp "mov"
+
+movl :: Register -> Register -> CodeGen
+movl = binaryOp "movl"
 
 subl :: Register -> Register -> CodeGen
 subl = binaryOp "subl"
@@ -208,5 +217,3 @@ cmp = binaryOp "cmp"
 
 compareEaxToStackValue :: Register -> CodeGen
 compareEaxToStackValue si = cmp "%eax" si
-
-

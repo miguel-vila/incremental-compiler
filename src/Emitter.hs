@@ -68,21 +68,6 @@ wrapInEntryPoint code = do
   emitAll restoreRegistersInsts
   emit "ret"
 
-emitLiteral :: Integer -> CodeGen
-emitLiteral n = do
-  emit $ "movl $" ++ show n ++ ", %eax"
-
-applyMask :: Integer -> CodeGen
-applyMask mask =
-  emit $ "and $" ++ show mask ++ ", %eax"
-
-emitBooleanByComparison :: ComparisonType -> CodeGen
-emitBooleanByComparison compareType = do
-  emit $ comparisonToSet compareType ++ " %al"  -- set %al to the result of the comparison
-  emit $ "movzbl %al, %eax"                   -- mov %al to %eax and pad the remaining bits with 0: https://en.wikibooks.org/wiki/X86_Assembly/Data_Transfer#Move_with_zero_extend --> why is this needed?
-  emit $ "sal $6, %al"                        -- move the result bit 6 bits to the left
-  emit $ "or $" ++ show falseValue ++ ", %al" -- or with the false value to return a "boolean" in the expected format
-
 ifEqReturnTrue :: CodeGen
 ifEqReturnTrue = emitBooleanByComparison Eq
 
@@ -96,7 +81,7 @@ emitReturnIfTail :: CodeGen
 emitReturnIfTail = do
   isTail <- isInTailPosition
   if isTail
-  then ret
+  then emit "ret"
   else noop
 
 emitExprBase :: Expr -> CodeGen
@@ -146,7 +131,7 @@ insertVarBinding varName si env =
 emitAdjustBase :: (StackIndex -> Integer) -> CodeGen
 emitAdjustBase f = do
   si <- getStackIndex
-  emit $ "addl $" ++ show (f si) ++ ", %esp"
+  addl ("$" ++ show (f si)) "%esp"
 
 getFnLabel :: FunctionName -> GenReaderState Label
 getFnLabel fnName = do
@@ -158,8 +143,8 @@ collapseStack :: Int -> StackIndex -> StackIndex -> CodeGen
 collapseStack 0 _ _ =
   noop
 collapseStack n originalStackIndex argsStackIndex =
-  do movl (stackValueAt argsStackIndex) eax
-     movl eax (stackValueAt originalStackIndex)
+  do movl (stackValueAt argsStackIndex) "%eax"
+     movl "%eax" (stackValueAt originalStackIndex)
      collapseStack (n - 1) (nextStackIndex originalStackIndex) (nextStackIndex argsStackIndex)
 
 emitUserFnApp :: FunctionName -> [Expr] -> CodeGen
@@ -233,30 +218,30 @@ emitBinaryFnApp codeGen [arg1, arg2] = do
     emitStackSave
     sv <- stackValueAtIndex
     withNextIndex $ emitExpr arg2
-    codeGen sv eax
+    codeGen sv "%eax"
 
 -- @TODO: this assumes commutativity?
 emitBinaryFnOpt :: (Register -> Register -> CodeGen) -> [Expr] -> CodeGen
 emitBinaryFnOpt codeGen args = case args of
   [L arg1, arg2] -> do
     emitExpr arg2
-    codeGen ("$" ++ (show $ inmediateRepr arg1)) eax
+    codeGen ("$" ++ (show $ inmediateRepr arg1)) "%eax"
   [arg1, L arg2] -> do
     emitExpr arg1
-    codeGen ("$" ++ (show $ inmediateRepr arg2)) eax
+    codeGen ("$" ++ (show $ inmediateRepr arg2)) "%eax"
   [VarRef arg1, VarRef arg2] -> do
     si1 <- getVarIndex arg1
     si2 <- getVarIndex arg2
     emitStackLoad si1
-    codeGen (stackValueAt si2) eax
+    codeGen (stackValueAt si2) "%eax"
   [VarRef arg1, arg2] -> do
     emitExpr arg2
     si <- getVarIndex arg1
-    codeGen (stackValueAt si) eax
+    codeGen (stackValueAt si) "%eax"
   [arg1, VarRef arg2] -> do
     emitExpr arg1
     si <- getVarIndex arg2
-    codeGen (stackValueAt si) eax
+    codeGen (stackValueAt si) "%eax"
   _              ->
     emitBinaryFnApp codeGen args
 
@@ -395,7 +380,7 @@ isVector = Predicate $ do
 vectorLength :: FnGen
 vectorLength = UnaryFn $ do
   emit $ "sub $" ++ show vectorTag ++ ", %eax"
-  mov "-4(%eax)" eax
+  mov "-4(%eax)" "%eax"
 
 fxLogNot :: FnGen
 fxLogNot = UnaryFn $ do
@@ -420,7 +405,7 @@ emitIf condition conseq altern = do
                   emitIfFor fnCode
                 emitAndJump (BinaryFn fnCode) = do
                   sv <- stackValueAtIndex
-                  emitIfFor $ fnCode sv eax
+                  emitIfFor $ fnCode sv "%eax"
                 emitAndJump (Predicate predicateCode) = do
                   predicateCode
                   ifNotEqJumpTo alternLabel
@@ -489,17 +474,17 @@ heapPosWithOffset offset =
 
 cons :: FnGen
 cons = BinaryFn _cons
-  where _cons reg1 eax = do
-          mov eax (heapPosWithOffset cdrOffset)
-          mov reg1 eax
-          mov eax (heapPosWithOffset carOffset)
-          mov "%ebp" eax
+  where _cons reg1 "%eax" = do
+          mov "%eax" (heapPosWithOffset cdrOffset)
+          mov reg1 "%eax"
+          mov "%eax" (heapPosWithOffset carOffset)
+          mov "%ebp" "%eax"
           emit $ "orl $" ++ show pairTag ++ ", %eax"
           subl "$8" "%ebp"
 
 makeVector :: FnGen
 makeVector = BinaryFn mkVector
-  where mkVector n eax = do
+  where mkVector n "%eax" = do
           loopLabel <- uniqueLabel
           mov n "%ebx"
           mov "%ebx" (heapPosWithOffset (-4)) -- save length
@@ -510,22 +495,22 @@ makeVector = BinaryFn mkVector
           emit $ "sub $4, %edx" -- for the length
           emitLabel loopLabel
           emit $ "sub $4, %ebx"
-          mov eax "(%ebx)" -- save the element in the i-th entry
+          mov "%eax" "(%ebx)" -- save the element in the i-th entry
           emit $ "cmp %edx, %ebx"
           emit $ "jne " ++ loopLabel
-          mov "%ebp" eax
+          mov "%ebp" "%eax"
           emit $ "or $" ++ show vectorTag ++ ", %eax"
           mov "%ebx" "%ebp"
 
 car :: FnGen
 car = UnaryFn $ do
   emit $ "subl $" ++ show pairTag ++ ", %eax"
-  mov (show carOffset ++ "(%eax)") eax
+  mov (show carOffset ++ "(%eax)") "%eax"
 
 cdr :: FnGen
 cdr = UnaryFn $ do
   emit $ "subl $" ++ show pairTag ++ ", %eax"
-  mov (show cdrOffset ++ "(%eax)") eax
+  mov (show cdrOffset ++ "(%eax)") "%eax"
 
 vectorRef :: FnGen
 vectorRef = BinaryFn vctRef
@@ -534,7 +519,7 @@ vectorRef = BinaryFn vctRef
           emit $ "sub $" ++ show vectorTag ++ ", %ebx"
           emit $ "sub $" ++ show vectorContentOffset ++ ", %ebx"
           emit $ "sub " ++ pos ++ ", %ebx"
-          mov "(%ebx)" eax
+          mov "(%ebx)" "%eax"
 
 vectorSet :: FnGen
 vectorSet = NaryFn $ \si ->
