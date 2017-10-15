@@ -40,6 +40,15 @@ removeFormat :: String -> String
 removeFormat sourceFileName =
   (concat $ init (split "." sourceFileName))
 
+compileScheme :: Program -> IO String
+compileScheme program =
+  case compile program of
+    Left compilationError -> do
+      printError "Failed compilation:"
+      printErrorAndExit (show compilationError)
+    Right code ->
+      return $ unlines code
+
 compileGCC :: String -> String -> IO ()
 compileGCC sourceFileName outputFilename =
   callCommand $ "gcc -m32 -g -o " ++ outputFilename ++ " runtime/runtime.c " ++ sourceFileName
@@ -50,7 +59,7 @@ main = do
      fileName <- getFileName args
      fileContent <- readFile fileName
      ast <- parse fileContent
-     let compiledCode = unlines $ compile ast
+     compiledCode <- compileScheme ast
      let fileNameWithoutFormat = removeFormat fileName
      let compiledCodeFileName = fileNameWithoutFormat ++ ".s"
      writeFile compiledCodeFileName compiledCode

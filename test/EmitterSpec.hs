@@ -29,11 +29,15 @@ wrap code =
 
 exprShouldEmit :: Expr -> Code -> Expectation
 exprShouldEmit expr code =
-  (compile $ Expr expr) `shouldBe` (wrap code)
+  (compile $ Expr expr) `shouldBe` (Right $ wrap code)
 
 programShouldEmit :: Program -> (Code, Code) -> Expectation
 programShouldEmit program (prefix,exprCode) =
-  (compile program) `shouldBe` (prefix ++ wrap exprCode)
+  (compile program) `shouldBe` (Right $ prefix ++ wrap exprCode)
+
+shouldErrorWith :: Program -> CompilationError -> Expectation
+shouldErrorWith program error =
+  (compile program) `shouldBe` (Left error)
 
 type ExprTestCase = (Expr, Code)
 
@@ -106,12 +110,28 @@ tailRecTestCases =
     )
   ]
 
+type ErrorTestCase = (Program, CompilationError)
+
+compilationErrorsTests :: [ErrorTestCase]
+compilationErrorsTests =
+  [ Expr (binOp "fx+" (fx 3) (var "x"))
+    ~> VariableNotInScope "x"
+  , Expr (_let ["x" <~ fx 1, "y" <~ (binOp "fx+" (var "x") (fx 2))] (var "y"))
+    ~> VariableNotInScope "x"
+  , Expr ( binApp "wat" (fx 1) (fx 2) )
+    ~> FunctionNotDefined "wat"
+  ]
+
 executeExprTestCases :: [ExprTestCase] -> Expectation
 executeExprTestCases = mapM_ (\(expr, expectedOutput) -> exprShouldEmit expr expectedOutput)
 
 executeProgramTestCases :: [ProgramTestCase] -> Expectation
 executeProgramTestCases = mapM_ (\(program, expectedOutput) -> programShouldEmit program expectedOutput)
 
+executeErrorTestCase :: [ErrorTestCase] -> Expectation
+executeErrorTestCase = mapM_ (\(program, expectedOutput) -> program `shouldErrorWith` expectedOutput)
+
 emitterSpec = describe "Compile" $ do
   it "optimizes fx+" $ executeExprTestCases fxPlusTests
   it "optimizes proper tail calls" $ executeProgramTestCases tailRecTestCases
+  it "handles errors during compilation" $ executeErrorTestCase compilationErrorsTests

@@ -22,7 +22,12 @@ type IsTail = Bool
 
 type StackIndex = Integer
 
-type GenReaderState = StateT CodeGenState (ReaderT (StackIndex, Environment, IsTail) (Writer Code))
+data CompilationError = VariableNotInScope VarName
+                      | FunctionNotDefined FnName
+                      deriving (Show, Eq)
+
+-- State CodeGenState (Reader (StackIndex, Environment, IsTail) (Either CompilationError (Writer Code)))
+type GenReaderState = StateT CodeGenState (ReaderT (StackIndex, Environment, IsTail) (WriterT Code (Either CompilationError)))
 
 type CodeGen = GenReaderState ()
 

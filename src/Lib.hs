@@ -23,4 +23,6 @@ compileAndExecute source = do
   return output
 
 compileCode :: Program -> String
-compileCode = unlines . compile
+compileCode program =
+  let Right(lines) = compile program
+  in unlines lines
