@@ -181,7 +181,7 @@ parseBinding = surroundedByParensOrBrackets $ do
   atLeastOneSpace
   expr <- parseExpr
   spaces
-  return $ BindingF varName expr
+  return $ (varName, expr)
 
 endFor :: Char -> Char
 endFor '(' = ')'

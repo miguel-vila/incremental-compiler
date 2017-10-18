@@ -45,14 +45,6 @@ vector = binOp "make-vector"
 vectorRef :: Expr -> Expr -> Expr
 vectorRef = binOp "vector-ref"
 
-letE :: [(String, Expr)] -> Expr -> Expr
-letE bindings body =
-  _let (map (\(name,expr) -> BindingF name expr) bindings) body
-
-letStarE :: [(String, Expr)] -> Expr -> Expr
-letStarE bindings body =
-  _letStar (map (\(name,expr) -> BindingF name expr) bindings) body
-
 vectorSet :: Expr -> Expr -> Expr -> Expr
 vectorSet vector position value =
   primitiveApp "vector-set!" [vector, position, value]

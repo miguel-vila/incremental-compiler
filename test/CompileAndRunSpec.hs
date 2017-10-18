@@ -234,52 +234,52 @@ ifComparisonTests = [ _if (binOp "fx<"  (fx 1) (fx 2)) (fx 4) (fx 7) ~> "4"
 
 letExpressionTests :: [ExprTestCase]
 letExpressionTests =
-  [ letE ["x" <~ (fx 3)]
+  [ _let ["x" <~ (fx 3)]
     (var "x")
     ~> "3"
-  , letE ["x" <~ (fx 3)]
+  , _let ["x" <~ (fx 3)]
     (binOp "fx+" (fx 7) (var "x"))
     ~> "10"
-  ,letE ["x" <~ (fx 5), "y" <~ (fx 7)]
+  ,_let ["x" <~ (fx 5), "y" <~ (fx 7)]
    (binOp "fx+" (var "x") (var "y"))
     ~> "12"
-  , letE ["x" <~ (fx 3), "y" <~ (binOp "fx+" (fx 4) (fx 7))]
+  , _let ["x" <~ (fx 3), "y" <~ (binOp "fx+" (fx 4) (fx 7))]
     (binOp "fx-" (var "y") (var "x"))
     ~> "8"
-  , letE ["x" <~ (fx 3), "y" <~ (fx 4), "z" <~ (fx 7)]
+  , _let ["x" <~ (fx 3), "y" <~ (fx 4), "z" <~ (fx 7)]
     (binOp "fx-" (binOp "fx+" (var "z") (var "y")) (var "x"))
     ~> "8"
-  , letE ["x" <~ (fx 3)]
-    (letE ["x" <~ (binOp "fx+" (var "x") (var "x"))]
+  , _let ["x" <~ (fx 3)]
+    (_let ["x" <~ (binOp "fx+" (var "x") (var "x"))]
      (var "x"))
     ~> "6"
-  , letE ["x" <~ (fx 1)]
-    (letE ["x" <~ (binOp "fx+" (fx 3) (fx 4))]
+  , _let ["x" <~ (fx 1)]
+    (_let ["x" <~ (binOp "fx+" (fx 3) (fx 4))]
      (var "x"))
     ~> "7"
-  , letE ["x" <~ (binOp "fx+" (fx 1) (fx 2))]
-    (letE ["x" <~ (binOp "fx+" (var "x") (fx 4))]
+  , _let ["x" <~ (binOp "fx+" (fx 1) (fx 2))]
+    (_let ["x" <~ (binOp "fx+" (var "x") (fx 4))]
      (var "x"))
     ~> "7"
-    , letE ["x" <~ (fx 12)]
-      (letE ["x" <~ (binOp "fx+" (var "x") (var "x"))]
-       (letE ["x" <~ (binOp "fx+" (var "x") (var "x"))]
-        (letE ["x" <~ (binOp "fx+" (var "x") (var "x"))]
+    , _let ["x" <~ (fx 12)]
+      (_let ["x" <~ (binOp "fx+" (var "x") (var "x"))]
+       (_let ["x" <~ (binOp "fx+" (var "x") (var "x"))]
+        (_let ["x" <~ (binOp "fx+" (var "x") (var "x"))]
          (binOp "fx+" (var "x") (var "x"))
         )
        )
       )
       ~> "192"
-    , letE ["x" <~ (fx 1)]
-      (letE ["x" <~ (binOp "fx+" (var "x") (fx 1)), "y" <~ (binOp "fx+" (var "x") (fx 1))]
+    , _let ["x" <~ (fx 1)]
+      (_let ["x" <~ (binOp "fx+" (var "x") (fx 1)), "y" <~ (binOp "fx+" (var "x") (fx 1))]
        (var "y"))
       ~> "2"
   ]
 
 letStarExpressionTests :: [ExprTestCase]
 letStarExpressionTests =
-  [ letE ["x" <~ (fx 1)]
-      (letStarE ["x" <~ (binOp "fx+" (var "x") (fx 1)), "y" <~ (binOp "fx+" (var "x") (fx 1))]
+  [ _let ["x" <~ (fx 1)]
+      (_letStar ["x" <~ (binOp "fx+" (var "x") (fx 1)), "y" <~ (binOp "fx+" (var "x") (fx 1))]
        (var "y"))
       ~> "3"
   ]
@@ -288,9 +288,9 @@ programTests :: [LetRecTestCase]
 programTests =
   [ ([LambdaBinding "add2" $ Lambda ["x"] (primitiveApp "fx+" [fx 2, var "x"])], userFnApp "add2" [fx 7], "9"),
     ([], fx 2, "2"),
-    ([], letE ["x" <~ (fx 5)] (binOp "fx+" (var "x") (var "x")), "10"),
+    ([], _let ["x" <~ (fx 5)] (binOp "fx+" (var "x") (var "x")), "10"),
     ([LambdaBinding "f" (Lambda [] (fx 5))], userFnApp "f" [], "5"),
-    ([LambdaBinding "f" (Lambda [] (fx 5))], letE ["x" <~ (userFnApp "f" [])] (var "x"), "5"),
+    ([LambdaBinding "f" (Lambda [] (fx 5))], _let ["x" <~ (userFnApp "f" [])] (var "x"), "5"),
     ([LambdaBinding "f" (Lambda [] (fx 5))], binOp "fx+" (userFnApp "f" []) (fx 7), "12"),
     ([LambdaBinding "f" (Lambda [] (fx 5))], binOp "fx+" (userFnApp "f" []) (userFnApp "f" []), "10"),
     ([ LambdaBinding "f" (Lambda [] (binOp "fx+" (fx 5) (fx 7))) ,
@@ -315,7 +315,7 @@ programTests =
 
 pairTests :: [ExprTestCase]
 pairTests =
-  [ letE [ "myPair" <~ (binOp "cons" (fx 5) (fx 10)) ]
+  [ _let [ "myPair" <~ (binOp "cons" (fx 5) (fx 10)) ]
     (unaryOp "pair?" (var "myPair"))
     ~> "#t"
   , unaryOp "pair?" (fx 3)
@@ -332,18 +332,18 @@ pairTests =
     ~> "12"
   , cons (fx 1) (fx 2)
     ~> "(1 . 2)"
-  , letE [ "t" <~ (letE [ "t" <~ (letE [ "t" <~ (letE [ "t" <~ (cons (fx 1) (fx 2))] (var "t")) ] (var "t"))] (var "t"))] (var "t")
+  , _let [ "t" <~ (_let [ "t" <~ (_let [ "t" <~ (_let [ "t" <~ (cons (fx 1) (fx 2))] (var "t")) ] (var "t"))] (var "t"))] (var "t")
     ~> "(1 . 2)"
   , cons (fx 1) (cons (fx 2) (cons (fx 3) (cons (fx 4) (fx 5))))
     ~> "(1 2 3 4 . 5)"
-  , letE [ "x" <~ nil ]
-           (letE [ "x" <~ cons (var "x") (var "x") ]
-                (letE [ "x" <~ cons (var "x") (var "x") ]
-                     (letE [ "x" <~ cons (var "x") (var "x") ]
+  , _let [ "x" <~ nil ]
+           (_let [ "x" <~ cons (var "x") (var "x") ]
+                (_let [ "x" <~ cons (var "x") (var "x") ]
+                     (_let [ "x" <~ cons (var "x") (var "x") ]
                           (cons (var "x") (var "x")))))
     ~> "((((()) ()) (()) ()) ((()) ()) (()) ())"
-  , (cons (letE [ "x" <~ _True] (letE [ "y" <~ (cons (var "x") (var "x"))] (cons (var "x") (var "y"))))
-        (cons (letE [ "x" <~ _False] (letE [ "y" <~ (cons (var "x") (var "x"))] (cons (var "y") (var "x"))))
+  , (cons (_let [ "x" <~ _True] (_let [ "y" <~ (cons (var "x") (var "x"))] (cons (var "x") (var "y"))))
+        (cons (_let [ "x" <~ _False] (_let [ "y" <~ (cons (var "x") (var "x"))] (cons (var "y") (var "x"))))
          nil))
     ~> "((#t #t . #t) ((#f . #f) . #f))"
   ]
@@ -356,13 +356,13 @@ vectorTests =
     ~> "#f"
   , unaryOp "vector-length" (vector (fx 12) (fx 666))
     ~> "12"
-  , unaryOp "vector-length" (vector (letE [ "x" <~ (binOp "fx+" (fx 4) (fx 7))
+  , unaryOp "vector-length" (vector (_let [ "x" <~ (binOp "fx+" (fx 4) (fx 7))
                                           , "y" <~ (fx 9)]
                                      (binOp "fx+" (var "x") (var "y"))) (fx 666))
     ~> "20"
   , vectorRef (vector (fx 3) (fx 456)) (fx 0)
     ~> "456"
-  , letE [ "v" <~ (vector (fx 4) (fx 3)) ]
+  , _let [ "v" <~ (vector (fx 4) (fx 3)) ]
     (binOp "fx+"
       (binOp "fx+"
         (vectorRef (var "v") (fx 0))
@@ -372,17 +372,17 @@ vectorTests =
         (vectorRef (var "v") (fx 3)))
     )
     ~> "12"
-  , letE [ "v" <~ (vector (fx 5) (fx 2)) ]
+  , _let [ "v" <~ (vector (fx 5) (fx 2)) ]
     (_do [ (vectorSet (var "v") (fx 1) (fx 42))
         , (vectorRef (var "v") (fx 1))
         ])
     ~> "42"
-  , letE [ "v" <~ (vector (fx 5) (fx 7)) ]
+  , _let [ "v" <~ (vector (fx 5) (fx 7)) ]
     (_do [ (vectorSet (var "v") (fx 1) (fx 42))
         , (vectorRef (var "v") (fx 0))
         ])
     ~> "7"
-  , letE [ "v" <~ (vector (fx 4) (fx 6)) ]
+  , _let [ "v" <~ (vector (fx 4) (fx 6)) ]
     (_do [ (vectorSet (var "v") (fx 1) (fx 42))
         , (vectorSet (var "v") (fx 2) (fx 10))
         , (binOp "fx+"

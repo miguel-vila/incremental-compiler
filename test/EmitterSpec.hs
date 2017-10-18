@@ -116,7 +116,7 @@ compilationErrorsTests :: [ErrorTestCase]
 compilationErrorsTests =
   [ Expr (binOp "fx+" (fx 3) (var "x"))
     ~> VariableNotInScope "x"
-  , Expr (letE ["x" <~ fx 1, "y" <~ (binOp "fx+" (var "x") (fx 2))] (var "y"))
+  , Expr (_let ["x" <~ fx 1, "y" <~ (binOp "fx+" (var "x") (fx 2))] (var "y"))
     ~> VariableNotInScope "x"
   , Expr ( binApp "wat" (fx 1) (fx 2) )
     ~> FunctionNotDefined "wat"

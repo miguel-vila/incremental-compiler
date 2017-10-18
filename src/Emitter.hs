@@ -93,34 +93,38 @@ lookupPrimitive primitiveName =
       var2 = ReaderT (const var)
   in StateT (\s -> fmap (\a -> (a,s)) var2 )
 
+--cataM :: (Base t a -> m a) -> t -> m a
+
 emitExprBase :: Expr -> CodeGen
-emitExprBase (Fix (L literal)) = do
-  emitLiteral $ inmediateRepr literal
-  emitReturnIfTail
-emitExprBase (Fix (PrimitiveApp name args)) =
-  do primitive <- lookupPrimitive name
-     emitPrimitiveApp name primitive args
-     emitReturnIfTail
-emitExprBase (Fix (If condition conseq altern)) =
-  emitIf condition conseq altern
-emitExprBase (Fix (And preds)) =
-  emitAnd preds
-emitExprBase (Fix (Or preds)) =
-  emitOr preds
-emitExprBase (Fix (Let bindings body)) =
-  emitLet bindings body
-emitExprBase (Fix (LetStar bindings body)) =
-  emitLetStar bindings body
-emitExprBase (Fix (VarRef varName)) = do
-  si <- getVarIndex varName
-  emitStackLoad si
-  emitReturnIfTail
-emitExprBase (Fix (UserFnApp fnName args)) =
-  emitUserFnApp fnName args
-emitExprBase (Fix (Do exprs)) =
-  mapM_ emitExprBase exprs -- last expression should leave it's result at %eax
-emitExprBase (Fix NoOp) =
-  noop
+emitExprBase = alg where
+  alg :: Expr -> CodeGen
+  alg (Fix (L literal)) = do
+    emitLiteral $ inmediateRepr literal
+    emitReturnIfTail
+  alg (Fix (PrimitiveApp name args)) =
+    do primitive <- lookupPrimitive name
+       emitPrimitiveApp name primitive args
+       emitReturnIfTail
+  alg (Fix (If condition conseq altern)) =
+    emitIf condition conseq altern
+  alg (Fix (And preds)) =
+    emitAnd preds
+  alg (Fix (Or preds)) =
+    emitOr preds
+  alg (Fix (Let bindings body)) =
+    emitLet bindings body
+  alg (Fix (LetStar bindings body)) =
+    emitLetStar bindings body
+  alg (Fix (VarRef varName)) = do
+    si <- getVarIndex varName
+    emitStackLoad si
+    emitReturnIfTail
+  alg (Fix (UserFnApp fnName args)) =
+    emitUserFnApp fnName args
+  alg (Fix (Do exprs)) =
+    mapM_ emitExprBase exprs -- last expression should leave it's result at %eax
+  alg (Fix NoOp) =
+    noop
 
 withIsTailSetTo :: Bool -> GenReaderState a -> GenReaderState a
 withIsTailSetTo isTail = local (\(env,si,_) -> (env,si,isTail))
@@ -178,21 +182,21 @@ emitLet bindings body = do
   emitLet' bindings env
   where emitLet' [] env =
           withEnv env $ emitExprBase body
-        emitLet' (binding : bindingsTail) env =
-          do emitExpr (expr binding)
+        emitLet' ((bindingName, bindingExpr) : bindingsTail) env =
+          do emitExpr bindingExpr
              emitStackSave
              si <- getStackIndex
-             let nextEnv = insertVarBinding (name binding) si env
+             let nextEnv = insertVarBinding bindingName si env
              withNextIndex $ emitLet' bindingsTail nextEnv
 
 emitLetStar :: [Binding] -> Expr -> CodeGen
 emitLetStar bindings body = emitLetStar' bindings
   where emitLetStar' [] =
           emitExprBase body
-        emitLetStar' (binding : bindingsTail) =
-          do emitExpr (expr binding)
+        emitLetStar' ((bindingName, bindingExpr) : bindingsTail) =
+          do emitExpr bindingExpr
              emitStackSave
-             let withLocalSiEnv = local (\(si,env,isTail) -> (nextStackIndex si, insertVarBinding (name binding) si env, isTail) )
+             let withLocalSiEnv = local (\(si,env,isTail) -> (nextStackIndex si, insertVarBinding bindingName si env, isTail) )
              withLocalSiEnv $ emitLetStar' bindingsTail
 
 emitPrimitiveApp :: FunctionName -> FnGen -> [Expr] -> CodeGen

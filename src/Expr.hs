@@ -34,17 +34,11 @@ type VarName = String
 
 type FnName = String
 
-data BindingF a = BindingF { name :: VarName
-                           , expr :: a
-                           } deriving (Show, Eq, Functor)
+type BindingF a = (VarName, a)
 
 type Binding = BindingF Expr
 
 type Expr = Fix ExprF
-
-$(deriveShow1 ''BindingF)
-
-$(deriveEq1 ''BindingF)
 
 $(deriveShow1 ''ExprF)
 

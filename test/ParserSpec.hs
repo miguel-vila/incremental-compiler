@@ -68,34 +68,34 @@ varRefsTests =
 letTests :: [ExprTestCase]
 letTests =
   [ "(let [(x 3) (y (fx- 4 5))] (fx* x y))"
-    ~> letE [ "x" ~> (fx 3)
+    ~> _let [ "x" ~> (fx 3)
            , "y" ~> (binOp "fx-" (fx 4) (fx 5))
            ] (binOp "fx*" (var "x") (var "y"))
   , "(let ((x 3) (y (fx- 4 5))) (fx* x y))"
-    ~> letE [ "x" ~> (fx 3)
+    ~> _let [ "x" ~> (fx 3)
            , "y" ~> (binOp "fx-" (fx 4) (fx 5))
            ] (binOp "fx*" (var "x") (var "y"))
   , "(let* ((x 3) (y (fx- x 5))) (fx* x y))"
-    ~> letStarE [ "x" ~> (fx 3)
+    ~> _letStar [ "x" ~> (fx 3)
                 , "y" ~> (binOp "fx-" (var "x") (fx 5))
                 ] (binOp "fx*" (var "x") (var "y"))
   , "(let ([t (let ([t (let ([t (let ([t (cons 1 2)]) t)]) t)]) t)]) t)"
-    ~> letE [ "t" ~> (letE [ "t" ~> (letE [ "t" ~> (letE [ "t" ~> (cons (fx 1) (fx 2))] (var "t")) ] (var "t"))] (var "t"))] (var "t")
+    ~> _let [ "t" ~> (_let [ "t" ~> (_let [ "t" ~> (_let [ "t" ~> (cons (fx 1) (fx 2))] (var "t")) ] (var "t"))] (var "t"))] (var "t")
   , concat [ "(let ([x ()])"
            , "     (let ([x (cons x x)])"
            , "            (let ([x (cons x x)])"
            , "                     (let ([x (cons x x)])"
            , "                                (cons x x)))))" ]
-    ~> letE [ "x" ~> nil]
-           (letE [ "x" ~> cons (var "x") (var "x") ]
-                (letE [ "x" ~> cons (var "x") (var "x")]
-                     (letE [ "x" ~> cons (var "x") (var "x") ]
+    ~> _let [ "x" ~> nil]
+           (_let [ "x" ~> cons (var "x") (var "x") ]
+                (_let [ "x" ~> cons (var "x") (var "x")]
+                     (_let [ "x" ~> cons (var "x") (var "x") ]
                           (cons (var "x") (var "x")))))
   , concat [ "(cons (let ([x #t]) (let ([y (cons x x)]) (cons x y)))"
            , "         (cons (let ([x #f]) (let ([y (cons x x)]) (cons y x)))"
            , "                        ()))" ]
-    ~> (cons (letE ["x" ~> _True] (letE ["y" ~> (cons (var "x") (var "x"))] (cons (var "x") (var "y"))))
-        (cons (letE ["x" ~> _False] (letE ["y" ~> (cons (var "x") (var "x"))] (cons (var "y") (var "x"))))
+    ~> (cons (_let ["x" ~> _True] (_let ["y" ~> (cons (var "x") (var "x"))] (cons (var "x") (var "y"))))
+        (cons (_let ["x" ~> _False] (_let ["y" ~> (cons (var "x") (var "x"))] (cons (var "y") (var "x"))))
          nil))
   ]
 
@@ -115,7 +115,7 @@ doTests =
              , "  (do (vector-set! v 1 42)"
              , "      (vector-ref v 1)))"
              ])
-    ~> (letE [ "v" <~ (vector (fx 5) (fx 2)) ]
+    ~> (_let [ "v" <~ (vector (fx 5) (fx 2)) ]
         (_do [ (vectorSet (var "v") (fx 1) (fx 42))
             , (vectorRef (var "v") (fx 1))
             ]))
