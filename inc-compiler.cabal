@@ -20,6 +20,8 @@ library
                      , parsec
                      , process
                      , directory >= 1.3
+                     , deriving-compat
+                     , recursion-schemes
   default-language:    Haskell2010
 
 executable inc-compiler-exe

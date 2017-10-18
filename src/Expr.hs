@@ -1,29 +1,28 @@
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE TemplateHaskell #-}
+
 module Expr where
+
+import Text.Show.Deriving
+import Data.Eq.Deriving
+import Data.Functor.Foldable hiding (Nil)
 
 type ParamName = String
 
 type FunctionName = String
 
-data Lambda = Lambda { params :: [ParamName]
-                     , body   :: Expr
-                     } deriving (Show, Eq)
-
-data Program = Expr Expr
-             | LetRec [LambdaBinding] Expr
-              deriving (Show, Eq)
-
-data Expr = L Literal
-          | PrimitiveApp FunctionName [Expr]
-          | If Expr Expr Expr
-          | And [Expr]
-          | Or [Expr]
-          | Let     [Binding] Expr
-          | LetStar [Binding] Expr
-          | VarRef VarName
-          | NoOp
-          | UserFnApp FunctionName [Expr]
-          | Do [Expr]
-          deriving (Show, Eq)
+data ExprF a = L Literal
+             | PrimitiveApp FunctionName [a]
+             | If a a a
+             | And [a]
+             | Or [a]
+             | Let     [BindingF a] a
+             | LetStar [BindingF a] a
+             | VarRef VarName
+             | NoOp
+             | UserFnApp FunctionName [a]
+             | Do [a]
+             deriving (Show, Eq, Functor)
 
 data Literal = FixNum Integer
              | Boolean Bool
@@ -35,28 +34,78 @@ type VarName = String
 
 type FnName = String
 
+data BindingF a = BindingF { name :: VarName
+                           , expr :: a
+                           } deriving (Show, Eq, Functor)
+
+type Binding = BindingF Expr
+
+type Expr = Fix ExprF
+
+$(deriveShow1 ''BindingF)
+
+$(deriveEq1 ''BindingF)
+
+$(deriveShow1 ''ExprF)
+
+$(deriveEq1 ''ExprF)
+
+data Lambda = Lambda { params :: [ParamName]
+                     , body   :: Expr
+                     } deriving (Show, Eq)
+
 data LambdaBinding = LambdaBinding { functionName :: FnName
                                    , lambda       :: Lambda
                                    } deriving (Show, Eq)
 
-data Binding = Binding { name :: VarName
-                       , expr :: Expr
-                       } deriving (Show, Eq)
+data Program = Expr Expr
+             | LetRec [LambdaBinding] Expr
+             deriving (Show, Eq)
 
 _False :: Expr
-_False = L $ Boolean False
+_False = Fix $ L $ Boolean False
 
 _True :: Expr
-_True = L$ Boolean True
+_True = Fix $ L $ Boolean True
 
 fx :: Integer -> Expr
-fx = L . FixNum
+fx = Fix . L . FixNum
 
 char :: Char -> Expr
-char = L . Character
+char = Fix . L . Character
 
 nil :: Expr
-nil = L Nil
+nil = Fix $ L Nil
 
 var :: String -> Expr
-var = VarRef
+var = Fix . VarRef
+
+literal :: Literal -> Expr
+literal = Fix . L
+
+primitiveApp :: FunctionName -> [Expr] -> Expr
+primitiveApp fnName args =
+  Fix $ PrimitiveApp fnName args
+
+userFnApp :: FunctionName -> [Expr] -> Expr
+userFnApp fnName args =
+  Fix $ UserFnApp fnName args
+
+_if :: Expr -> Expr -> Expr -> Expr
+_if cond conseq altern =
+  Fix $ If cond conseq altern
+
+_and :: [Expr] -> Expr
+_and = Fix . And
+
+_or :: [Expr] -> Expr
+_or = Fix . Or
+
+_let :: [Binding] -> Expr -> Expr
+_let bindings body = Fix $ Let bindings body
+
+_letStar :: [Binding] -> Expr -> Expr
+_letStar bindings body = Fix $ LetStar bindings body
+
+_do :: [Expr] -> Expr
+_do = Fix . Do

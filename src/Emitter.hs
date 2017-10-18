@@ -3,12 +3,13 @@ module Emitter where
 import Prelude hiding (lookup)
 import Control.Monad.Writer.Lazy
 import MagicNumbers
-import Expr
+import Expr hiding (_and, _or)
 import InmediateRepr
 import Control.Monad.State.Lazy
 import Data.HashMap hiding (map)
 import Control.Monad.Reader
 import CodeGen
+import Data.Functor.Foldable hiding (Nil)
 
 initialState :: CodeGenState
 initialState = 0
@@ -93,32 +94,32 @@ lookupPrimitive primitiveName =
   in StateT (\s -> fmap (\a -> (a,s)) var2 )
 
 emitExprBase :: Expr -> CodeGen
-emitExprBase (L literal) = do
+emitExprBase (Fix (L literal)) = do
   emitLiteral $ inmediateRepr literal
   emitReturnIfTail
-emitExprBase (PrimitiveApp name args) =
+emitExprBase (Fix (PrimitiveApp name args)) =
   do primitive <- lookupPrimitive name
      emitPrimitiveApp name primitive args
      emitReturnIfTail
-emitExprBase (If condition conseq altern) =
+emitExprBase (Fix (If condition conseq altern)) =
   emitIf condition conseq altern
-emitExprBase (And preds) =
+emitExprBase (Fix (And preds)) =
   emitAnd preds
-emitExprBase (Or preds) =
+emitExprBase (Fix (Or preds)) =
   emitOr preds
-emitExprBase (Let bindings body) =
+emitExprBase (Fix (Let bindings body)) =
   emitLet bindings body
-emitExprBase (LetStar bindings body) =
+emitExprBase (Fix (LetStar bindings body)) =
   emitLetStar bindings body
-emitExprBase (VarRef varName) = do
+emitExprBase (Fix (VarRef varName)) = do
   si <- getVarIndex varName
   emitStackLoad si
   emitReturnIfTail
-emitExprBase (UserFnApp fnName args) =
+emitExprBase (Fix (UserFnApp fnName args)) =
   emitUserFnApp fnName args
-emitExprBase (Do exprs) =
+emitExprBase (Fix (Do exprs)) =
   mapM_ emitExprBase exprs -- last expression should leave it's result at %eax
-emitExprBase NoOp =
+emitExprBase (Fix NoOp) =
   noop
 
 withIsTailSetTo :: Bool -> GenReaderState a -> GenReaderState a
@@ -233,22 +234,22 @@ emitBinaryFnApp codeGen [arg1, arg2] = do
 -- @TODO: this assumes commutativity?
 emitBinaryFnOpt :: (Register -> Register -> CodeGen) -> [Expr] -> CodeGen
 emitBinaryFnOpt codeGen args = case args of
-  [L arg1, arg2] -> do
+  [Fix (L arg1), arg2] -> do
     emitExpr arg2
     codeGen ("$" ++ (show $ inmediateRepr arg1)) "%eax"
-  [arg1, L arg2] -> do
+  [arg1, Fix (L arg2)] -> do
     emitExpr arg1
     codeGen ("$" ++ (show $ inmediateRepr arg2)) "%eax"
-  [VarRef arg1, VarRef arg2] -> do
+  [Fix (VarRef arg1), Fix (VarRef arg2)] -> do
     si1 <- getVarIndex arg1
     si2 <- getVarIndex arg2
     emitStackLoad si1
     codeGen (stackValueAt si2) "%eax"
-  [VarRef arg1, arg2] -> do
+  [Fix (VarRef arg1), arg2] -> do
     emitExpr arg2
     si <- getVarIndex arg1
     codeGen (stackValueAt si) "%eax"
-  [arg1, VarRef arg2] -> do
+  [arg1, Fix (VarRef arg2)] -> do
     emitExpr arg1
     si <- getVarIndex arg2
     codeGen (stackValueAt si) "%eax"
@@ -409,7 +410,7 @@ emitIf condition conseq altern = do
         ifEqJumpTo alternLabel
   let evalCondAndJumpToAlternIfFalse =
         case condition of
-          PrimitiveApp fnName args ->
+          Fix (PrimitiveApp fnName args) ->
             let (Just primitive) = lookup fnName primitives  -- @TODO handle this
                 emitAndJump (UnaryFn fnCode) =
                   emitIfFor fnCode
@@ -438,12 +439,12 @@ emitIf condition conseq altern = do
 emitAnd :: [Expr] -> CodeGen
 emitAnd []            = emitExpr _False
 emitAnd [test]        = emitExpr test
-emitAnd (test : rest) = emitIf test (And rest) _False
+emitAnd (test : rest) = emitIf test (Fix $ And rest) _False
 
 emitOr :: [Expr] -> CodeGen
 emitOr []            = emitExpr _True
 emitOr [test]        = emitExpr test
-emitOr (test : rest) = emitIf test NoOp (Or rest)
+emitOr (test : rest) = emitIf test (Fix NoOp) (Fix $ Or rest)
 
 fxPlus :: FnGen
 fxPlus = BinaryFn addl
@@ -556,7 +557,7 @@ emitLambda label lmb = do
 -- @TODO whole function is very ugly, refactor!
 emitLetRec :: [LambdaBinding] -> Expr -> CodeGen
 emitLetRec bindings body = do
-  lambdasWithLabels <- sequence $ map lambdaNameLabelPair bindings
+  lambdasWithLabels <- mapM lambdaNameLabelPair bindings
   let fnBindings = fromList $ map (\(binding, label) -> (functionName binding, label)) lambdasWithLabels
   (si, emptyEnv, isTail) <- ask
   let envWithFnBindings = emptyEnv { fnEnv = fnBindings }

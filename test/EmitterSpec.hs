@@ -72,12 +72,12 @@ fxPlusTests =
 badFibonacci :: LambdaBinding
 badFibonacci = LambdaBinding "fib" $
   Lambda ["n"] $
-  If (binOp "fx<=" (var "n") (fx 1)) (var "n") $ binOp "fx+" (app "fib" (binOp "fx-" (var "n") (fx 1))) (app "fib" (binOp "fx-" (var "n") (fx 2)))
+  _if (binOp "fx<=" (var "n") (fx 1)) (var "n") $ binOp "fx+" (app "fib" (binOp "fx-" (var "n") (fx 1))) (app "fib" (binOp "fx-" (var "n") (fx 2)))
 
 tailRecTestCases :: [ProgramTestCase]
 tailRecTestCases =
   [ LetRec [ sumFirstN1 ]
-    (UserFnApp "sum" [fx 10, fx 0])
+    (userFnApp "sum" [fx 10, fx 0])
     ~>
     ([ "Lambda_0:"
      , tabbed "movl -4(%esp), %eax"
@@ -116,7 +116,7 @@ compilationErrorsTests :: [ErrorTestCase]
 compilationErrorsTests =
   [ Expr (binOp "fx+" (fx 3) (var "x"))
     ~> VariableNotInScope "x"
-  , Expr (_let ["x" <~ fx 1, "y" <~ (binOp "fx+" (var "x") (fx 2))] (var "y"))
+  , Expr (letE ["x" <~ fx 1, "y" <~ (binOp "fx+" (var "x") (fx 2))] (var "y"))
     ~> VariableNotInScope "x"
   , Expr ( binApp "wat" (fx 1) (fx 2) )
     ~> FunctionNotDefined "wat"

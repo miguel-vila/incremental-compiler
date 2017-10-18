@@ -10,6 +10,7 @@ import Control.Monad.Except
 import Numeric (readFloat)
 import Expr hiding (char)
 import Emitter
+import Data.Functor.Foldable hiding (Nil)
 
 data ParsingError = ParsingError { messages :: [String]
                                  , position :: String
@@ -70,7 +71,7 @@ parseLetRec = do
 
 parseExpr :: Parser Expr
 parseExpr =
-  (L <$> try parseLiteral) <|>
+  (literal <$> try parseLiteral) <|>
   (startList *>
     (parseIf <|>
      try parseAndOr <|>
@@ -134,8 +135,8 @@ parseFnApp = do
           atLeastOneSpace
           parseExpr
   let constr = if isPrimitive fnName
-               then PrimitiveApp
-               else UserFnApp
+               then primitiveApp
+               else userFnApp
   return $ constr fnName args
 
 parseIf :: Parser Expr
@@ -147,7 +148,7 @@ parseIf = do
   conseq <- parseExpr
   atLeastOneSpace
   altern <- parseExpr
-  return $ If cond conseq altern
+  return $ _if cond conseq altern
 
 parseListExpr :: Parser [Expr]
 parseListExpr =
@@ -165,7 +166,7 @@ parseAndOr = do
   atLeastOneSpace
   args <- parseListExpr
   spaces
-  let constr = if which == "and" then And else Or
+  let constr = if which == "and" then _and else _or
   return $ constr args
 
 parseVarName :: Parser VarName
@@ -180,7 +181,7 @@ parseBinding = surroundedByParensOrBrackets $ do
   atLeastOneSpace
   expr <- parseExpr
   spaces
-  return $ Binding varName expr
+  return $ BindingF varName expr
 
 endFor :: Char -> Char
 endFor '(' = ')'
@@ -201,15 +202,15 @@ parseLetOrLetStar = do
   bindings <- surroundedByParensOrBrackets $ parseBinding `sepBy` atLeastOneSpace
   spaces
   body <- parseExpr
-  let constr = if maybeStar == Nothing then Let else LetStar
+  let constr = if maybeStar == Nothing then _let else _letStar
   return $ constr bindings body
 
 parseVarRef :: Parser Expr
-parseVarRef = VarRef <$> parseVarName
+parseVarRef = var <$> parseVarName
 
 parseDo :: Parser Expr
 parseDo = do
   string "do"
   atLeastOneSpace
   exprs <- parseListExpr
-  return $ Do exprs
+  return $ _do exprs

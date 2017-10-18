@@ -4,7 +4,7 @@ import Control.Monad.Writer.Lazy
 import Control.Monad.State.Lazy
 import Data.HashMap hiding (map)
 import Control.Monad.Reader
-import Expr
+import Expr hiding (_and, _or)
 import MagicNumbers
 
 type Inst = String

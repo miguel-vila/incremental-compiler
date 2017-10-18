@@ -22,13 +22,13 @@ toProgramTestCase (str, expr) = (str, Expr expr)
 
 literalTests :: [ExprTestCase]
 literalTests =
-  [ "123"  ~> L (FixNum 123)
-  , "#t"   ~> L (Boolean True)
-  , "#f"   ~> L (Boolean False)
-  , "#\\x" ~> L (Character 'x')
-  , "null" ~> L Nil
-  , "nil"  ~> L Nil
-  , "()"   ~> L Nil
+  [ "123"  ~> literal (FixNum 123)
+  , "#t"   ~> literal (Boolean True)
+  , "#f"   ~> literal (Boolean False)
+  , "#\\x" ~> literal (Character 'x')
+  , "null" ~> literal Nil
+  , "nil"  ~> literal Nil
+  , "()"   ~> literal Nil
   ]
 
 primitiveTests :: [ExprTestCase]
@@ -44,17 +44,17 @@ primitiveTests =
 ifTests :: [ExprTestCase]
 ifTests =
   [ "(if #t 5 6)"
-    ~> If _True (fx 5) (fx 6)
+    ~> _if _True (fx 5) (fx 6)
   , "(if (if (fx> 2 3) 7 8) 5 6)"
-    ~> If (If (binOp "fx>" (fx 2) (fx 3)) (fx 7) (fx 8)) (fx 5) (fx 6) 
+    ~> _if (_if (binOp "fx>" (fx 2) (fx 3)) (fx 7) (fx 8)) (fx 5) (fx 6)
   ]
 
 andOrTests :: [ExprTestCase]
 andOrTests =
   [ "(and 4 #f #\\x)"
-    ~> And [fx 4, _False, L $ Character 'x']
+    ~> _and [fx 4, _False, char 'x']
   , "(or 3 (fx+ 3 2))"
-    ~> Or [fx 3, binOp "fx+" (fx 3) (fx 2)]
+    ~> _or [fx 3, binOp "fx+" (fx 3) (fx 2)]
   ]
 
 varRefsTests :: [ExprTestCase]
@@ -68,43 +68,43 @@ varRefsTests =
 letTests :: [ExprTestCase]
 letTests =
   [ "(let [(x 3) (y (fx- 4 5))] (fx* x y))"
-    ~> _let [ "x" ~> (fx 3)
+    ~> letE [ "x" ~> (fx 3)
            , "y" ~> (binOp "fx-" (fx 4) (fx 5))
            ] (binOp "fx*" (var "x") (var "y"))
   , "(let ((x 3) (y (fx- 4 5))) (fx* x y))"
-    ~> _let [ "x" ~> (fx 3)
+    ~> letE [ "x" ~> (fx 3)
            , "y" ~> (binOp "fx-" (fx 4) (fx 5))
            ] (binOp "fx*" (var "x") (var "y"))
   , "(let* ((x 3) (y (fx- x 5))) (fx* x y))"
-    ~> _letStar [ "x" ~> (fx 3)
+    ~> letStarE [ "x" ~> (fx 3)
                 , "y" ~> (binOp "fx-" (var "x") (fx 5))
                 ] (binOp "fx*" (var "x") (var "y"))
   , "(let ([t (let ([t (let ([t (let ([t (cons 1 2)]) t)]) t)]) t)]) t)"
-    ~> _let [ "t" ~> (_let [ "t" ~> (_let [ "t" ~> (_let [ "t" ~> (cons (fx 1) (fx 2))] (var "t")) ] (var "t"))] (var "t"))] (var "t")
+    ~> letE [ "t" ~> (letE [ "t" ~> (letE [ "t" ~> (letE [ "t" ~> (cons (fx 1) (fx 2))] (var "t")) ] (var "t"))] (var "t"))] (var "t")
   , concat [ "(let ([x ()])"
            , "     (let ([x (cons x x)])"
            , "            (let ([x (cons x x)])"
            , "                     (let ([x (cons x x)])"
            , "                                (cons x x)))))" ]
-    ~> _let [ "x" ~> (L Nil)]
-           (_let [ "x" ~> cons (var "x") (var "x") ]
-                (_let [ "x" ~> cons (var "x") (var "x")]
-                     (_let [ "x" ~> cons (var "x") (var "x") ]
+    ~> letE [ "x" ~> nil]
+           (letE [ "x" ~> cons (var "x") (var "x") ]
+                (letE [ "x" ~> cons (var "x") (var "x")]
+                     (letE [ "x" ~> cons (var "x") (var "x") ]
                           (cons (var "x") (var "x")))))
   , concat [ "(cons (let ([x #t]) (let ([y (cons x x)]) (cons x y)))"
            , "         (cons (let ([x #f]) (let ([y (cons x x)]) (cons y x)))"
            , "                        ()))" ]
-    ~> (cons (_let ["x" ~> _True] (_let ["y" ~> (cons (var "x") (var "x"))] (cons (var "x") (var "y"))))
-        (cons (_let ["x" ~> _False] (_let ["y" ~> (cons (var "x") (var "x"))] (cons (var "y") (var "x"))))
-         (L Nil)))
+    ~> (cons (letE ["x" ~> _True] (letE ["y" ~> (cons (var "x") (var "x"))] (cons (var "x") (var "y"))))
+        (cons (letE ["x" ~> _False] (letE ["y" ~> (cons (var "x") (var "x"))] (cons (var "y") (var "x"))))
+         nil))
   ]
 
 fnAppTests :: [ExprTestCase]
 fnAppTests =
   [ "(my-fn)"
-    ~> (UserFnApp "my-fn" [])
+    ~> (userFnApp "my-fn" [])
   , "(f)"
-    ~> (UserFnApp "f" [])
+    ~> (userFnApp "f" [])
   , "(my-fn x 3)"
     ~> binApp "my-fn" (var "x") (fx 3)
   ]
@@ -115,8 +115,8 @@ doTests =
              , "  (do (vector-set! v 1 42)"
              , "      (vector-ref v 1)))"
              ])
-    ~> (_let [ "v" <~ (vector (fx 5) (fx 2)) ]
-        (Do [ (vectorSet (var "v") (fx 1) (fx 42))
+    ~> (letE [ "v" <~ (vector (fx 5) (fx 2)) ]
+        (_do [ (vectorSet (var "v") (fx 1) (fx 42))
             , (vectorRef (var "v") (fx 1))
             ]))
   ]
