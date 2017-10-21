@@ -222,3 +222,7 @@ cmp = binaryOp "cmp"
 
 compareEaxToStackValue :: Register -> CodeGen
 compareEaxToStackValue si = cmp "%eax" si
+
+heapPosWithOffset :: Integer -> String
+heapPosWithOffset offset =
+  show offset ++ "(%ebp)"

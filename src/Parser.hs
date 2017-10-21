@@ -9,7 +9,7 @@ import Control.Monad.State.Lazy
 import Control.Monad.Except
 import Numeric (readFloat)
 import Expr hiding (char)
-import Emitter
+import Primitives
 import Data.Functor.Foldable hiding (Nil)
 
 data ParsingError = ParsingError { messages :: [String]
