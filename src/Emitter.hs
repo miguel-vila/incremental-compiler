@@ -9,7 +9,10 @@ import Control.Monad.State.Lazy
 import Data.HashMap hiding (map)
 import Control.Monad.Reader
 import CodeGen
+import Desugaring
 import Data.Functor.Foldable hiding (Nil)
+
+type Compiled = CodeGen
 
 initialState :: CodeGenState
 initialState = 0
@@ -93,49 +96,41 @@ lookupPrimitive primitiveName =
       var2 = ReaderT (const var)
   in StateT (\s -> fmap (\a -> (a,s)) var2 )
 
---cataM :: (Base t a -> m a) -> t -> m a
-
 emitExprBase :: Expr -> CodeGen
-emitExprBase = alg where
-  alg :: Expr -> CodeGen
-  alg (Fix (L literal)) = do
+emitExprBase = cata alg where
+  alg :: ExprF Compiled -> CodeGen
+  alg (L literal) = do
     emitLiteral $ inmediateRepr literal
     emitReturnIfTail
-  alg (Fix (PrimitiveApp name args)) =
+  alg (PrimitiveApp name args) =
     do primitive <- lookupPrimitive name
        emitPrimitiveApp name primitive args
        emitReturnIfTail
-  alg (Fix (If condition conseq altern)) =
+  alg (If condition conseq altern) =
     emitIf condition conseq altern
-  alg (Fix (And preds)) =
-    emitAnd preds
-  alg (Fix (Or preds)) =
-    emitOr preds
-  alg (Fix (Let bindings body)) =
+  alg (Let bindings body) =
     emitLet bindings body
-  alg (Fix (LetStar bindings body)) =
+  alg (LetStar bindings body) =
     emitLetStar bindings body
-  alg (Fix (VarRef varName)) = do
+  alg (VarRef varName) = do
     si <- getVarIndex varName
     emitStackLoad si
     emitReturnIfTail
-  alg (Fix (UserFnApp fnName args)) =
+  alg (UserFnApp fnName args) =
     emitUserFnApp fnName args
-  alg (Fix (Do exprs)) =
-    mapM_ emitExprBase exprs -- last expression should leave it's result at %eax
-  alg (Fix NoOp) =
+  alg (Do exprs) =
+    sequence_ exprs -- last expression should leave it's result at %eax
+  alg NoOp =
     noop
 
 withIsTailSetTo :: Bool -> GenReaderState a -> GenReaderState a
 withIsTailSetTo isTail = local (\(env,si,_) -> (env,si,isTail))
 
-emitExpr :: Expr -> CodeGen
-emitExpr expr =
-  withIsTailSetTo False (emitExprBase expr)
+asExpr :: CodeGen -> CodeGen
+asExpr = withIsTailSetTo False
 
-emitTailExpr :: Expr -> CodeGen
-emitTailExpr expr =
-  withIsTailSetTo True (emitExprBase expr)
+asTailExpr :: CodeGen -> CodeGen
+asTailExpr = withIsTailSetTo True
 
 insertVarBinding :: VarName -> StackIndex -> Environment -> Environment
 insertVarBinding varName si env =
@@ -162,7 +157,7 @@ collapseStack n originalStackIndex argsStackIndex =
      movl "%eax" (stackValueAt originalStackIndex)
      collapseStack (n - 1) (nextStackIndex originalStackIndex) (nextStackIndex argsStackIndex)
 
-emitUserFnApp :: FunctionName -> [Expr] -> CodeGen
+emitUserFnApp :: FunctionName -> [Compiled] -> CodeGen
 emitUserFnApp fnName args = do
   label <- getFnLabel fnName
   withNextIndex (emitArgs args)
@@ -176,39 +171,40 @@ emitUserFnApp fnName args = do
             emitAdjustBase (\si -> - si - wordsize)
 
 -- @TODO refactor repetition between these 2 functions
-emitLet :: [Binding] -> Expr -> CodeGen
+emitLet :: [BindingF Compiled] -> Compiled -> CodeGen
 emitLet bindings body = do
   env <- getEnv
   emitLet' bindings env
   where emitLet' [] env =
-          withEnv env $ emitExprBase body
+          withEnv env body
         emitLet' ((bindingName, bindingExpr) : bindingsTail) env =
-          do emitExpr bindingExpr
+          do asExpr bindingExpr
              emitStackSave
              si <- getStackIndex
              let nextEnv = insertVarBinding bindingName si env
              withNextIndex $ emitLet' bindingsTail nextEnv
 
-emitLetStar :: [Binding] -> Expr -> CodeGen
+emitLetStar :: [BindingF Compiled] -> Compiled -> CodeGen
 emitLetStar bindings body = emitLetStar' bindings
   where emitLetStar' [] =
-          emitExprBase body
+          body
         emitLetStar' ((bindingName, bindingExpr) : bindingsTail) =
-          do emitExpr bindingExpr
+          do asExpr bindingExpr
              emitStackSave
              let withLocalSiEnv = local (\(si,env,isTail) -> (nextStackIndex si, insertVarBinding bindingName si env, isTail) )
              withLocalSiEnv $ emitLetStar' bindingsTail
 
-emitPrimitiveApp :: FunctionName -> FnGen -> [Expr] -> CodeGen
+emitPrimitiveApp :: FunctionName -> FnGen -> [Compiled] -> CodeGen
 emitPrimitiveApp fnName fnGen args =
   case fnGen of
     UnaryFn codeGen -> do
-      emitExpr $ head args -- @TODO check # of args
+      asExpr $ head args -- @TODO check # of args
       codeGen
     BinaryFn codeGen ->
-      if elem fnName canBeOptimized
-      then emitBinaryFnOpt codeGen args
-      else emitBinaryFnApp codeGen args
+--      if elem fnName canBeOptimized
+--      then emitBinaryFnOpt codeGen args
+--      else emitBinaryFnApp codeGen args
+      emitBinaryFnApp codeGen args
     NaryFn codeGen -> do
       emitArgsWithoutLastSave args
       si <- getStackIndex
@@ -226,57 +222,56 @@ emitPrimitiveApp fnName fnGen args =
 canBeOptimized :: [String]
 canBeOptimized = [ "fx+"
                  ]
-
-emitBinaryFnApp :: (Register -> Register -> CodeGen) -> [Expr] -> CodeGen
+emitBinaryFnApp :: (Register -> Register -> CodeGen) -> [Compiled] -> CodeGen
 emitBinaryFnApp codeGen [arg1, arg2] = do
-    emitExpr arg1
+    asExpr arg1
     emitStackSave
     sv <- stackValueAtIndex
-    withNextIndex $ emitExpr arg2
+    withNextIndex $ asExpr arg2
     codeGen sv "%eax"
 
 -- @TODO: this assumes commutativity?
-emitBinaryFnOpt :: (Register -> Register -> CodeGen) -> [Expr] -> CodeGen
-emitBinaryFnOpt codeGen args = case args of
-  [Fix (L arg1), arg2] -> do
-    emitExpr arg2
-    codeGen ("$" ++ (show $ inmediateRepr arg1)) "%eax"
-  [arg1, Fix (L arg2)] -> do
-    emitExpr arg1
-    codeGen ("$" ++ (show $ inmediateRepr arg2)) "%eax"
-  [Fix (VarRef arg1), Fix (VarRef arg2)] -> do
-    si1 <- getVarIndex arg1
-    si2 <- getVarIndex arg2
-    emitStackLoad si1
-    codeGen (stackValueAt si2) "%eax"
-  [Fix (VarRef arg1), arg2] -> do
-    emitExpr arg2
-    si <- getVarIndex arg1
-    codeGen (stackValueAt si) "%eax"
-  [arg1, Fix (VarRef arg2)] -> do
-    emitExpr arg1
-    si <- getVarIndex arg2
-    codeGen (stackValueAt si) "%eax"
-  _              ->
-    emitBinaryFnApp codeGen args
+-- emitBinaryFnOpt :: (Register -> Register -> CodeGen) -> [Expr] -> CodeGen
+-- emitBinaryFnOpt codeGen args = case args of
+--  [Fix (L arg1), arg2] -> do
+--    emitExpr arg2
+--    codeGen ("$" ++ (show $ inmediateRepr arg1)) "%eax"
+--  [arg1, Fix (L arg2)] -> do
+--    emitExpr arg1
+--    codeGen ("$" ++ (show $ inmediateRepr arg2)) "%eax"
+--  [Fix (VarRef arg1), Fix (VarRef arg2)] -> do
+--    si1 <- getVarIndex arg1
+--    si2 <- getVarIndex arg2
+--    emitStackLoad si1
+--    codeGen (stackValueAt si2) "%eax"
+--  [Fix (VarRef arg1), arg2] -> do
+--    emitExpr arg2
+--    si <- getVarIndex arg1
+--    codeGen (stackValueAt si) "%eax"
+--  [arg1, Fix (VarRef arg2)] -> do
+--    emitExpr arg1
+--    si <- getVarIndex arg2
+--    codeGen (stackValueAt si) "%eax"
+--  _              ->
+--    emitBinaryFnApp codeGen args
 
-emitArgs :: [Expr] -> CodeGen
+emitArgs :: [Compiled] -> CodeGen
 emitArgs args = loop args
   where loop []              =
           noop
         loop (argh:argsTail) = do
-          emitExpr argh
+          asExpr argh
           emitStackSave
           withNextIndex (loop argsTail)
 
-emitArgsWithoutLastSave :: [Expr] -> CodeGen
+emitArgsWithoutLastSave :: [Compiled] -> CodeGen
 emitArgsWithoutLastSave args = loop args
   where loop []              =
           noop
         loop [arg]           =
-          emitExpr arg
+          asExpr arg
         loop (argh:argsTail) = do
-          emitExpr argh
+          asExpr argh
           emitStackSave
           withNextIndex (loop argsTail)
 
@@ -403,7 +398,7 @@ fxLogNot = UnaryFn $ do
   emit "sar $2, %eax"
   emit "sal $2, %eax"
 
-emitIf :: Expr -> Expr -> Expr -> CodeGen
+emitIf :: Compiled -> Compiled -> Compiled -> CodeGen
 emitIf condition conseq altern = do
   alternLabel <- uniqueLabel
   endLabel    <- uniqueLabel
@@ -414,41 +409,31 @@ emitIf condition conseq altern = do
         ifEqJumpTo alternLabel
   let evalCondAndJumpToAlternIfFalse =
         case condition of
-          Fix (PrimitiveApp fnName args) ->
-            let (Just primitive) = lookup fnName primitives  -- @TODO handle this
-                emitAndJump (UnaryFn fnCode) =
-                  emitIfFor fnCode
-                emitAndJump (BinaryFn fnCode) = do
-                  sv <- stackValueAtIndex
-                  emitIfFor $ fnCode sv "%eax"
-                emitAndJump (Predicate predicateCode) = do
-                  predicateCode
-                  ifNotEqJumpTo alternLabel
-                emitAndJump (Comparison comparisonType fnCode)  = do
-                  sv <- stackValueAtIndex
-                  fnCode sv
-                  ifComparisonJumpTo (opposing comparisonType) alternLabel
-            in do emitArgs args
-                  emitAndJump primitive
-          _ -> do emitExpr condition
+--          Fix (PrimitiveApp fnName args) ->
+--            let (Just primitive) = lookup fnName primitives  -- @TODO handle this
+--                emitAndJump (UnaryFn fnCode) =
+--                  emitIfFor fnCode
+--                emitAndJump (BinaryFn fnCode) = do
+--                  sv <- stackValueAtIndex
+--                  emitIfFor $ fnCode sv "%eax"
+--                emitAndJump (Predicate predicateCode) = do
+--                  predicateCode
+--                  ifNotEqJumpTo alternLabel
+--                emitAndJump (Comparison comparisonType fnCode)  = do
+--                  sv <- stackValueAtIndex
+--                  fnCode sv
+--                  ifComparisonJumpTo (opposing comparisonType) alternLabel
+--            in do emitArgs args
+--                  emitAndJump primitive
+          _ -> do asExpr condition
                   compareTo falseValue
                   ifEqJumpTo alternLabel
   evalCondAndJumpToAlternIfFalse
-  emitExprBase conseq
+  conseq
   emitIfNotTail $ jumpTo endLabel
   emitLabel alternLabel
-  emitExprBase altern
+  altern
   emitIfNotTail $ emitLabel endLabel
-
-emitAnd :: [Expr] -> CodeGen
-emitAnd []            = emitExpr _False
-emitAnd [test]        = emitExpr test
-emitAnd (test : rest) = emitIf test (Fix $ And rest) _False
-
-emitOr :: [Expr] -> CodeGen
-emitOr []            = emitExpr _True
-emitOr [test]        = emitExpr test
-emitOr (test : rest) = emitIf test (Fix NoOp) (Fix $ Or rest)
 
 fxPlus :: FnGen
 fxPlus = BinaryFn addl
@@ -553,7 +538,7 @@ emitLambda label lmb = do
   emitLabel label
   emitParams (params lmb)
   where emitParams [] = do
-          emitTailExpr (body lmb)
+          asTailExpr $ emitExprBase (body lmb)
         emitParams (arg:restOfArgs) = do
           let withLocalSiEnv = local (\(si,env,isTail) -> (nextStackIndex si, insertVarBinding arg si env, isTail) )
           withLocalSiEnv $ emitParams restOfArgs
@@ -567,7 +552,7 @@ emitLetRec bindings body = do
   let envWithFnBindings = emptyEnv { fnEnv = fnBindings }
   let withFnBindings = local (const (si, envWithFnBindings, isTail))
   withFnBindings $ mapM_ emitLambdaBinding lambdasWithLabels
-  wrapInEntryPoint $ withFnBindings (emitExpr body)
+  wrapInEntryPoint $ withFnBindings (asExpr $ emitExprBase body)
   where lambdaNameLabelPair binding =
           do label <- uniqueLambdaLabel (functionName binding)
              return (binding, label)
@@ -576,6 +561,6 @@ emitLetRec bindings body = do
 
 emitProgram :: Program -> CodeGen
 emitProgram (Expr expr) =
-  wrapInEntryPoint $ emitExpr expr
+  wrapInEntryPoint $ asExpr $ emitExprBase $ desugar expr
 emitProgram (LetRec bindings body) =
-  emitLetRec bindings body
+  emitLetRec (map (fmap desugar) bindings) (desugar body)

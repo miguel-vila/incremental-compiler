@@ -13,7 +13,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Lib, Expr, Emitter, Parser, CodeGen
-  other-modules:       InmediateRepr, MagicNumbers
+  other-modules:       InmediateRepr, MagicNumbers, Desugaring
   build-depends:       base >= 4.7 && < 5
                      , hashmap
                      , mtl
@@ -44,6 +44,7 @@ test-suite inc-compiler-test
                      , inc-compiler
                      , mtl
                      , transformers
+                     , recursion-schemes
                      , hspec
                      , HUnit
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N

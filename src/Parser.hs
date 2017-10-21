@@ -24,13 +24,13 @@ readOrThrow :: Parser a -> String -> Either ParsingError a
 readOrThrow parser input =
   either (Left . toParsingError) Right (parse parser "lisp" input)
 
-readExpr :: String -> Either ParsingError Expr
+readExpr :: String -> Either ParsingError ParsedExpr
 readExpr = readOrThrow parseExpr
 
 readProgram :: String -> Either ParsingError Program
 readProgram = readOrThrow parseProgram
 
-parseLambda :: Parser Lambda
+parseLambda :: Parser (LambdaF ParsedExpr)
 parseLambda = do
   startList
   string "lambda"
@@ -43,7 +43,7 @@ parseLambda = do
   endList
   return $ Lambda args body
 
-parseLambdaBinding :: Parser LambdaBinding
+parseLambdaBinding :: Parser (LambdaBindingF ParsedExpr)
 parseLambdaBinding = do
   startList
   fnName <- parseVarName
@@ -69,7 +69,7 @@ parseLetRec = do
   endList
   return $ LetRec lambdaBindings body
 
-parseExpr :: Parser Expr
+parseExpr :: Parser ParsedExpr
 parseExpr =
   (literal <$> try parseLiteral) <|>
   (startList *>
@@ -128,7 +128,7 @@ endList = char ')'
 
 atLeastOneSpace = many1 space
 
-parseFnApp :: Parser Expr
+parseFnApp :: Parser ParsedExpr
 parseFnApp = do
   fnName <- parseVarName
   args <- try $ option [] $ many1 $ do
@@ -139,7 +139,7 @@ parseFnApp = do
                else userFnApp
   return $ constr fnName args
 
-parseIf :: Parser Expr
+parseIf :: Parser ParsedExpr
 parseIf = do
   string "if"
   atLeastOneSpace
@@ -150,7 +150,7 @@ parseIf = do
   altern <- parseExpr
   return $ _if cond conseq altern
 
-parseListExpr :: Parser [Expr]
+parseListExpr :: Parser [ParsedExpr]
 parseListExpr =
   parseExpr `sepBy` atLeastOneSpace
 
@@ -160,7 +160,7 @@ reservedNames = [ "or"
                 , "do"
                 ]
 
-parseAndOr :: Parser Expr
+parseAndOr :: Parser ParsedExpr
 parseAndOr = do
   which <- (string "and") <|> (string "or")
   atLeastOneSpace
@@ -175,7 +175,7 @@ parseVarName =
   in do mapM_ (notFollowedBy . string) reservedNames
         many1 (satisfy isValidChar)
 
-parseBinding :: Parser Binding
+parseBinding :: Parser (BindingF ParsedExpr)
 parseBinding = surroundedByParensOrBrackets $ do
   varName <- parseVarName
   atLeastOneSpace
@@ -194,7 +194,7 @@ surroundedByParensOrBrackets p = do
   char $ endFor start
   return v
 
-parseLetOrLetStar :: Parser Expr
+parseLetOrLetStar :: Parser ParsedExpr
 parseLetOrLetStar = do
   string "let"
   maybeStar <- optionMaybe (char '*')
@@ -205,10 +205,10 @@ parseLetOrLetStar = do
   let constr = if maybeStar == Nothing then _let else _letStar
   return $ constr bindings body
 
-parseVarRef :: Parser Expr
+parseVarRef :: Parser ParsedExpr
 parseVarRef = var <$> parseVarName
 
-parseDo :: Parser Expr
+parseDo :: Parser ParsedExpr
 parseDo = do
   string "do"
   atLeastOneSpace

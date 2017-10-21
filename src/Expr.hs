@@ -1,21 +1,67 @@
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveFunctor
+           , FlexibleContexts
+           , FlexibleInstances
+           , TemplateHaskell
+           , TypeOperators
+           , MultiParamTypeClasses
+           #-}
 
 module Expr where
 
 import Text.Show.Deriving
 import Data.Eq.Deriving
 import Data.Functor.Foldable hiding (Nil)
+import Data.Monoid((<>))
+import Data.Functor.Sum
+
+infixr 6 :+:
+type (:+:) = Sum
+
+class (Functor sub, Functor sup) => sub :<: sup where
+  inj :: sub a -> sup a
+  prj :: sup a -> Maybe (sub a)
+
+inject' :: f :<: g => f (Fix g) -> Fix g
+inject' = Fix . inj
+
+project' :: f :<: g => Fix g -> Maybe (f (Fix g))
+project' (Fix f) = prj f
+
+instance Functor f => f :<: f where
+  inj = id
+  prj = Just
+
+instance {-# OVERLAPPING #-} (Functor f, Functor g) => f :<: (f :+: g) where
+  inj = InL
+
+  prj (InL fa) = Just fa
+  prj _        = Nothing
+
+instance (Functor f, Functor g, Functor h, f :<: h) => f :<: (g :+: h) where
+  inj = InR . inj
+
+  prj (InR ha) = prj ha
+  prj _        = Nothing
 
 type ParamName = String
 
 type FunctionName = String
 
+data AndF a = And [a]
+              deriving (Show, Eq, Functor)
+
+$(deriveEq1   ''AndF)
+$(deriveShow1 ''AndF)
+
+data OrF a = Or [a]
+             deriving (Show, Eq, Functor)
+
+$(deriveEq1   ''OrF)
+$(deriveShow1 ''OrF)
+
 data ExprF a = L Literal
              | PrimitiveApp FunctionName [a]
              | If a a a
-             | And [a]
-             | Or [a]
              | Let     [BindingF a] a
              | LetStar [BindingF a] a
              | VarRef VarName
@@ -38,68 +84,79 @@ type BindingF a = (VarName, a)
 
 type Binding = BindingF Expr
 
+binding :: VarName -> a -> BindingF a
+binding = (,)
+
 type Expr = Fix ExprF
+
+type ParsedExprF = AndF :+: OrF :+: ExprF
+
+type ParsedExpr = Fix ParsedExprF
 
 $(deriveShow1 ''ExprF)
 
 $(deriveEq1 ''ExprF)
 
-data Lambda = Lambda { params :: [ParamName]
-                     , body   :: Expr
-                     } deriving (Show, Eq)
+data LambdaF a = Lambda { params :: [ParamName]
+                        , body   :: a
+                        } deriving (Show, Eq, Functor)
 
-data LambdaBinding = LambdaBinding { functionName :: FnName
-                                   , lambda       :: Lambda
-                                   } deriving (Show, Eq)
+type Lambda = LambdaF Expr
 
-data Program = Expr Expr
-             | LetRec [LambdaBinding] Expr
+data LambdaBindingF a = LambdaBinding { functionName :: FnName
+                                      , lambda       :: LambdaF a
+                                      } deriving (Show, Eq, Functor)
+
+type LambdaBinding = LambdaBindingF Expr
+
+data Program = Expr ParsedExpr
+             | LetRec [LambdaBindingF ParsedExpr] ParsedExpr
              deriving (Show, Eq)
 
-_False :: Expr
-_False = Fix $ L $ Boolean False
+_False :: ExprF :<: f => Fix f
+_False = inject' $ L $ Boolean False
 
-_True :: Expr
-_True = Fix $ L $ Boolean True
+_True :: ExprF :<: f => Fix f
+_True = inject' $ L $ Boolean True
 
-fx :: Integer -> Expr
-fx = Fix . L . FixNum
+fx :: ExprF :<: f => Integer -> Fix f
+fx = inject' . L . FixNum
 
-char :: Char -> Expr
-char = Fix . L . Character
+char :: ExprF :<: f => Char -> Fix f
+char = inject' . L . Character
 
-nil :: Expr
-nil = Fix $ L Nil
+nil :: ExprF :<: f => Fix f
+nil = inject' $ L Nil
 
-var :: String -> Expr
-var = Fix . VarRef
+var :: ExprF :<: f => String -> Fix f
+var = inject' . VarRef
 
-literal :: Literal -> Expr
-literal = Fix . L
+literal :: ExprF :<: f => Literal -> Fix f
+literal = inject' . L
 
-primitiveApp :: FunctionName -> [Expr] -> Expr
+primitiveApp :: ExprF :<: f => FunctionName -> [Fix f] -> Fix f
 primitiveApp fnName args =
-  Fix $ PrimitiveApp fnName args
+  inject' $ PrimitiveApp fnName args
 
-userFnApp :: FunctionName -> [Expr] -> Expr
+userFnApp :: ExprF :<: f => FunctionName -> [Fix f] -> Fix f
 userFnApp fnName args =
-  Fix $ UserFnApp fnName args
+  inject' $ UserFnApp fnName args
 
-_if :: Expr -> Expr -> Expr -> Expr
+_if :: ExprF :<: f => Fix f -> Fix f -> Fix f -> Fix f
 _if cond conseq altern =
-  Fix $ If cond conseq altern
+  inject' $ If cond conseq altern
 
-_and :: [Expr] -> Expr
-_and = Fix . And
+_and :: AndF :<: f => [Fix f] -> Fix f
+_and = inject' . And
 
-_or :: [Expr] -> Expr
-_or = Fix . Or
+_or :: OrF :<: f => [Fix f] -> Fix f
+_or = inject' . Or
 
-_let :: [Binding] -> Expr -> Expr
-_let bindings body = Fix $ Let bindings body
+_let :: ExprF :<: f => [BindingF (Fix f)] -> Fix f -> Fix f
+_let bindings body = inject' $ Let bindings body
 
-_letStar :: [Binding] -> Expr -> Expr
-_letStar bindings body = Fix $ LetStar bindings body
+_letStar :: ExprF :<: f => [BindingF (Fix f)] -> Fix f -> Fix f
+_letStar bindings body = inject' $ LetStar bindings body
 
-_do :: [Expr] -> Expr
-_do = Fix . Do
+_do :: ExprF :<: f => [Fix f] -> Fix f
+_do = inject' . Do

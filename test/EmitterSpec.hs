@@ -27,7 +27,7 @@ wrap code =
   ++ restoreRegistersInsts
   ++ [ tabbed "ret" ]
 
-exprShouldEmit :: Expr -> Code -> Expectation
+exprShouldEmit :: ParsedExpr -> Code -> Expectation
 exprShouldEmit expr code =
   (compile $ Expr expr) `shouldBe` (Right $ wrap code)
 
@@ -39,7 +39,7 @@ shouldErrorWith :: Program -> CompilationError -> Expectation
 shouldErrorWith program error =
   (compile program) `shouldBe` (Left error)
 
-type ExprTestCase = (Expr, Code)
+type ExprTestCase = (ParsedExpr, Code)
 
 type ProgramTestCase = (Program, (Code, Code))
 

@@ -6,14 +6,14 @@ import Test.Hspec
 import Test.HUnit
 import TestUtils
 
-exprShouldBeParsedTo :: String -> Expr -> Expectation
+exprShouldBeParsedTo :: String -> ParsedExpr -> Expectation
 exprShouldBeParsedTo str expr =
    (readExpr str) `shouldBe` (Right expr)
 
 programShouldBeParsedTo :: String -> Program -> Expectation
 programShouldBeParsedTo str program= (readProgram str) `shouldBe` (Right program)
 
-type ExprTestCase = (String, Expr)
+type ExprTestCase = (String, ParsedExpr)
 
 type ProgramTestCase = (String, Program)
 

@@ -9,9 +9,9 @@ whenRunShouldPrint :: Program -> String -> Expectation
 whenRunShouldPrint source expectedOutput =
   compileAndExecute source `shouldReturn` expectedOutput
 
-type ExprTestCase = (Expr, String)
+type ExprTestCase = (ParsedExpr, String)
 
-type LetRecTestCase = ([LambdaBinding], Expr, String)
+type LetRecTestCase = ([LambdaBindingF ParsedExpr], ParsedExpr, String)
 
 type TestCase = (Program, String)
 
