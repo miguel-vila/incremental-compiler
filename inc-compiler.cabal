@@ -12,16 +12,18 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Lib, Expr, Emitter, Parser, CodeGen
-  other-modules:       InmediateRepr, MagicNumbers, Desugaring, Primitives, Chars, FixNum, Pairs, Vectors
+  exposed-modules:     Lib, Expr, Emitter, Parser, CodeGen, ParserWithPosition
+  other-modules:       InmediateRepr, MagicNumbers, Desugaring, Primitives, Chars, FixNum, Pairs, Vectors, LiteralParser
   build-depends:       base >= 4.7 && < 5
                      , hashmap
                      , mtl
                      , parsec
+                     , parsec-numbers
                      , process
                      , directory >= 1.3
                      , deriving-compat
                      , recursion-schemes
+                     , free
   default-language:    Haskell2010
 
 executable inc-compiler-exe
@@ -38,7 +40,7 @@ test-suite inc-compiler-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
-  other-modules:       CompileAndRunSpec, EmitterSpec, ParserSpec, TestUtils
+  other-modules:       CompileAndRunSpec, EmitterSpec, ParserSpec, ParserWithPositionSpec, TestUtils
   build-depends:       base
                      , parsec
                      , inc-compiler

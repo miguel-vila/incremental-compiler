@@ -1,16 +1,13 @@
 module Parser where
 
-import Control.Monad
+import Expr hiding (char)
+import Primitives
+import LiteralParser
+
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Error
 import Data.HashMap hiding (map)
 import Data.Char (isSpace)
-import Control.Monad.State.Lazy
-import Control.Monad.Except
-import Numeric (readFloat)
-import Expr hiding (char)
-import Primitives
-import Data.Functor.Foldable hiding (Nil)
 
 data ParsingError = ParsingError { messages :: [String]
                                  , position :: String
@@ -71,7 +68,7 @@ parseLetRec = do
 
 parseExpr :: Parser ParsedExpr
 parseExpr =
-  (literal <$> try parseLiteral) <|>
+  parseLiteral <|>
   (startList *>
     (parseIf <|>
      try parseAndOr <|>
@@ -81,41 +78,10 @@ parseExpr =
     <* endList) <|>
   parseVarRef
 
-parseLiteral :: Parser Literal
-parseLiteral = parseFixNum <|>
+parseLiteral :: Parser ParsedExpr
+parseLiteral = literal <$> try (parseFixNum <|>
                parseStartingWithHash <|>
-               parseNull
-
-parseFixNum :: Parser Literal
-parseFixNum = do
-  s <- getInput
-  case readFloat s :: [(Float, String)] of
-    [(n,s')] -> (FixNum $ floor n) <$ setInput s' -- @TODO how to avoid the `floor`?
-    _ -> fail "Not an integer"
-
-parseStartingWithHash :: Parser Literal
-parseStartingWithHash = do
-  char '#'
-  parseBoolean <|> parseChar
-
-parseBoolean :: Parser Literal
-parseBoolean =
-  let true = Boolean True <$ char 't'
-      false = Boolean False <$ char 'f'
-  in true <|> false
-
-parseChar :: Parser Literal
-parseChar = Character <$> do
-  char '\\'
-  anyChar
-
-nullOrNil :: Parser String
-nullOrNil = do
-  char 'n'
-  string "ull" <|> string "il"
-
-parseNull :: Parser Literal
-parseNull = Nil <$ (nullOrNil <|> string "()")
+               parseNull)
 
 isPrimitive :: FnName -> Bool
 isPrimitive fnName = member fnName primitives

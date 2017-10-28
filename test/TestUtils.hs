@@ -10,8 +10,14 @@ import Data.Functor.Foldable hiding (Nil)
 binOp :: ExprF :<: f => String -> Fix f -> Fix f -> Fix f
 binOp name arg1 arg2 = primitiveApp name [arg1, arg2]
 
+binOpP :: ExprF :<: f => String -> AnnotatedWithPosition f -> AnnotatedWithPosition f -> ExprPosition -> AnnotatedWithPosition f
+binOpP name arg1 arg2 = primitiveAppP name [arg1, arg2]
+
 unaryOp :: ExprF :<: f => String -> Fix f -> Fix f
 unaryOp name arg = primitiveApp name [arg]
+
+unaryOpP :: ExprF :<: f => String -> AnnotatedWithPosition f -> ExprPosition -> AnnotatedWithPosition f
+unaryOpP name arg = primitiveAppP name [arg]
 
 app :: ExprF :<: f => FunctionName -> Fix f -> Fix f
 app f arg = userFnApp f [arg]
