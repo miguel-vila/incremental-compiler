@@ -23,11 +23,11 @@ makeVector = BinaryFn mkVector
           emit $ "sub $" ++ show vectorLengthOffset ++", %ebx" -- move it down after saving the length
           mov "%ebp" "%edx" -- %edx will be the limit
           emit $ "sub " ++ n ++ ", %edx" -- for each of the elements (4x)
-          emit $ "sub $4, %edx" -- for the length
+          emit "sub $4, %edx" -- for the length
           emitLabel loopLabel
-          emit $ "sub $4, %ebx"
+          emit "sub $4, %ebx"
           mov "%eax" "(%ebx)" -- save the element in the i-th entry
-          emit $ "cmp %edx, %ebx"
+          emit "cmp %edx, %ebx"
           emit $ "jne " ++ loopLabel
           mov "%ebp" "%eax"
           emit $ "or $" ++ show vectorTag ++ ", %eax"

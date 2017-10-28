@@ -11,7 +11,6 @@ module Expr where
 import Text.Show.Deriving
 import Data.Eq.Deriving
 import Data.Functor.Foldable hiding (Nil)
-import Data.Monoid((<>))
 import Data.Functor.Sum
 
 infixr 6 :+:
@@ -153,10 +152,10 @@ _or :: OrF :<: f => [Fix f] -> Fix f
 _or = inject' . Or
 
 _let :: ExprF :<: f => [BindingF (Fix f)] -> Fix f -> Fix f
-_let bindings body = inject' $ Let bindings body
+_let bindings letBody = inject' $ Let bindings letBody
 
 _letStar :: ExprF :<: f => [BindingF (Fix f)] -> Fix f -> Fix f
-_letStar bindings body = inject' $ LetStar bindings body
+_letStar bindings letBody = inject' $ LetStar bindings letBody
 
 _do :: ExprF :<: f => [Fix f] -> Fix f
 _do = inject' . Do

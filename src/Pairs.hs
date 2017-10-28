@@ -10,12 +10,12 @@ isPair = Predicate $ do
 
 cons :: FnGen
 cons = BinaryFn _cons
-  where _cons reg1 "%eax" = do
-          mov "%eax" (heapPosWithOffset cdrOffset)
-          mov reg1 "%eax"
-          mov "%eax" (heapPosWithOffset carOffset)
-          mov "%ebp" "%eax"
-          emit $ "orl $" ++ show pairTag ++ ", %eax"
+  where _cons reg1 eax = do
+          mov eax (heapPosWithOffset cdrOffset)
+          mov reg1 eax
+          mov eax (heapPosWithOffset carOffset)
+          mov "%ebp" eax
+          emit $ "orl $" ++ show pairTag ++ ", " ++ eax
           subl "$8" "%ebp"
 
 car :: FnGen

@@ -119,8 +119,8 @@ applyMask mask =
 emitBooleanByComparison :: ComparisonType -> CodeGen
 emitBooleanByComparison compareType = do
   emit $ comparisonToSet compareType ++ " %al"  -- set %al to the result of the comparison
-  emit $ "movzbl %al, %eax"                   -- mov %al to %eax and pad the remaining bits with 0: https://en.wikibooks.org/wiki/X86_Assembly/Data_Transfer#Move_with_zero_extend --> why is this needed?
-  emit $ "sal $6, %al"                        -- move the result bit 6 bits to the left
+  emit "movzbl %al, %eax"                   -- mov %al to %eax and pad the remaining bits with 0: https://en.wikibooks.org/wiki/X86_Assembly/Data_Transfer#Move_with_zero_extend --> why is this needed?
+  emit "sal $6, %al"                        -- move the result bit 6 bits to the left
   _or ("$" ++ show falseValue) "%al" -- or with the false value to return a "boolean" in the expected format
 
 emitFunctionHeader :: Label -> CodeGen
@@ -167,13 +167,13 @@ uniqueLabel = do
   return $ "L_" ++ show s
 
 uniqueLambdaLabel :: String -> GenReaderState Label
-uniqueLambdaLabel fnName = do
+uniqueLambdaLabel _ = do
   s <- get
   modify (+1)
   return $ "Lambda_" ++ show s
 
 stackValueAt :: StackIndex -> String
-stackValueAt si = (show si) ++ "(%esp)"
+stackValueAt si = show si ++ "(%esp)"
 
 stackValueAtIndex :: GenReaderState String
 stackValueAtIndex = do
@@ -197,7 +197,7 @@ subl :: Register -> Register -> CodeGen
 subl = binaryOp "subl"
 
 shr :: Int -> Register -> CodeGen
-shr n reg2 = binaryOp "shr" ("$" ++ show n) reg2
+shr n = binaryOp "shr" ("$" ++ show n)
 
 -- normally when we multiply two numbers they are shifted 2 bits
 -- to the right. That's: a number x is represented by 4*x
@@ -221,7 +221,7 @@ cmp :: Register -> Register -> CodeGen
 cmp = binaryOp "cmp"
 
 compareEaxToStackValue :: Register -> CodeGen
-compareEaxToStackValue si = cmp "%eax" si
+compareEaxToStackValue = cmp "%eax"
 
 heapPosWithOffset :: Integer -> String
 heapPosWithOffset offset =

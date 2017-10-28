@@ -95,8 +95,8 @@ emitReturnIfTail = do
 emitExprBase :: Expr -> CodeGen
 emitExprBase = para ralg where
   ralg :: ExprF Compiled -> CodeGen
-  ralg (L literal) = do
-    emitLiteral $ inmediateRepr literal
+  ralg (L lit) = do
+    emitLiteral (inmediateRepr lit)
     emitReturnIfTail
   ralg (PrimitiveApp name args) =
     do primitive <- lookupPrimitive name
@@ -104,10 +104,10 @@ emitExprBase = para ralg where
        emitReturnIfTail
   ralg (If condition conseq altern) =
     emitIf condition conseq altern
-  ralg (Let bindings body) =
-    emitLet bindings body
-  ralg (LetStar bindings body) =
-    emitLetStar bindings body
+  ralg (Let bindings letBody) =
+    emitLet bindings letBody
+  ralg (LetStar bindings letBody) =
+    emitLetStar bindings letBody
   ralg (VarRef varName) = do
     si <- getVarIndex varName
     emitStackLoad si
@@ -162,17 +162,17 @@ emitUserFnApp fnName args = do
     then do si <- getStackIndex
             collapseStack (length args) (- wordsize) (nextStackIndex si)
             emit $ "jmp " ++ label
-    else do emitAdjustBase (\si -> si + wordsize)
+    else do emitAdjustBase (+ wordsize)
             emit $ "call " ++ label
             emitAdjustBase (\si -> - si - wordsize)
 
 -- @TODO refactor repetition between these 2 functions
 emitLet :: [BindingF Compiled] -> Compiled -> CodeGen
-emitLet bindings body = do
+emitLet bindings letBody = do
   env <- getEnv
   emitLet' bindings env
   where emitLet' [] env =
-          withEnv env (snd body)
+          withEnv env (snd letBody)
         emitLet' ((bindingName, (_,bindingExpr)) : bindingsTail) env =
           do asExpr bindingExpr
              emitStackSave
@@ -181,9 +181,9 @@ emitLet bindings body = do
              withNextIndex $ emitLet' bindingsTail nextEnv
 
 emitLetStar :: [BindingF Compiled] -> Compiled -> CodeGen
-emitLetStar bindings body = emitLetStar' bindings
+emitLetStar bindings letBody = emitLetStar' bindings
   where emitLetStar' [] =
-          snd body
+          snd letBody
         emitLetStar' ((bindingName, (_,bindingExpr)) : bindingsTail) =
           do asExpr bindingExpr
              emitStackSave
@@ -197,7 +197,7 @@ emitPrimitiveApp fnName fnGen args =
       asExpr $ snd $ head args -- @TODO check # of args
       codeGen
     BinaryFn codeGen ->
-      if elem fnName canBeOptimized
+      if fnName `elem` canBeOptimized
       then emitBinaryFnOpt codeGen args
       else emitBinaryFnApp codeGen args
     NaryFn codeGen -> do
@@ -230,10 +230,10 @@ emitBinaryFnOpt :: (Register -> Register -> CodeGen) -> [Compiled] -> CodeGen
 emitBinaryFnOpt codeGen args = case args of
  [(Fix (L arg1),_), (_,arg2)] -> do
    asExpr arg2
-   codeGen ("$" ++ (show $ inmediateRepr arg1)) "%eax"
+   codeGen ("$" ++ show (inmediateRepr arg1)) "%eax"
  [(_,arg1), (Fix (L arg2),_)] -> do
    asExpr arg1
-   codeGen ("$" ++ (show $ inmediateRepr arg2)) "%eax"
+   codeGen ("$" ++ show (inmediateRepr arg2)) "%eax"
  [(Fix (VarRef arg1),_), (Fix (VarRef arg2),_)] -> do
    si1 <- getVarIndex arg1
    si2 <- getVarIndex arg2
@@ -251,7 +251,7 @@ emitBinaryFnOpt codeGen args = case args of
    emitBinaryFnApp codeGen args
 
 emitArgs :: [CodeGen] -> CodeGen
-emitArgs args = loop args
+emitArgs = loop
   where loop []              =
           noop
         loop (argh:argsTail) = do
@@ -260,7 +260,7 @@ emitArgs args = loop args
           withNextIndex (loop argsTail)
 
 emitArgsWithoutLastSave :: [CodeGen] -> CodeGen
-emitArgsWithoutLastSave args = loop args
+emitArgsWithoutLastSave = loop
   where loop []              =
           noop
         loop [arg]           =
@@ -296,11 +296,11 @@ emitIf (conditionBody, condition) (_,conseq) (_,altern) = do
         code
         compareTo falseValue
         ifEqJumpTo alternLabel
-  let emitArgs []    = noop
-      emitArgs (argh: argsTail) = do
+  let emitArgs' []    = noop
+      emitArgs' (argh: argsTail) = do
         asExpr $ emitExprBase argh -- @TODO <- argh, vanilla recursion
         emitStackSave
-        withNextIndex (emitArgs argsTail)
+        withNextIndex (emitArgs' argsTail)
   let evalCondAndJumpToAlternIfFalse =
         case unfix conditionBody of
           PrimitiveApp fnName args ->
@@ -317,7 +317,7 @@ emitIf (conditionBody, condition) (_,conseq) (_,altern) = do
                   fnCode sv
                   ifComparisonJumpTo (opposing comparisonType) alternLabel
             in do primitive <- lookupPrimitive fnName
-                  emitArgs args
+                  emitArgs' args
                   emitAndJump primitive
           _ -> do asExpr condition
                   compareTo falseValue
@@ -333,7 +333,7 @@ emitLambda :: Label -> Lambda -> CodeGen
 emitLambda label lmb = do
   emitLabel label
   emitParams (params lmb)
-  where emitParams [] = do
+  where emitParams [] =
           asTailExpr $ emitExprBase (body lmb)
         emitParams (arg:restOfArgs) = do
           let withLocalSiEnv = local (\(si,env,isTail) -> (nextStackIndex si, insertVarBinding arg si env, isTail) )
@@ -341,22 +341,22 @@ emitLambda label lmb = do
 
 -- @TODO whole function is very ugly, refactor!
 emitLetRec :: [LambdaBinding] -> Expr -> CodeGen
-emitLetRec bindings body = do
+emitLetRec bindings programBody = do
   lambdasWithLabels <- mapM lambdaNameLabelPair bindings
-  let fnBindings = fromList $ map (\(binding, label) -> (functionName binding, label)) lambdasWithLabels
+  let fnBindings = fromList $ map (\(bind, label) -> (functionName bind, label)) lambdasWithLabels
   (si, emptyEnv, isTail) <- ask
   let envWithFnBindings = emptyEnv { fnEnv = fnBindings }
   let withFnBindings = local (const (si, envWithFnBindings, isTail))
   withFnBindings $ mapM_ emitLambdaBinding lambdasWithLabels
-  wrapInEntryPoint $ withFnBindings (asExpr $ emitExprBase body)
-  where lambdaNameLabelPair binding =
-          do label <- uniqueLambdaLabel (functionName binding)
-             return (binding, label)
-        emitLambdaBinding (LambdaBinding _ lambda, label) =
-          emitLambda label lambda
+  wrapInEntryPoint $ withFnBindings (asExpr $ emitExprBase programBody)
+  where lambdaNameLabelPair bind =
+          do label <- uniqueLambdaLabel (functionName bind)
+             return (bind, label)
+        emitLambdaBinding (LambdaBinding _ lmb, label) =
+          emitLambda label lmb
 
 emitProgram :: Program -> CodeGen
 emitProgram (Expr expr) =
   wrapInEntryPoint $ asExpr $ emitExprBase $ desugar expr
-emitProgram (LetRec bindings body) =
-  emitLetRec (map (fmap desugar) bindings) (desugar body)
+emitProgram (LetRec bindings letBody) =
+  emitLetRec (map (fmap desugar) bindings) (desugar letBody)
