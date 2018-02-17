@@ -2,6 +2,7 @@ module CodeGen where
 
 import Control.Monad.Writer.Lazy
 import Control.Monad.State.Lazy
+import Control.Monad.Except
 import Data.HashMap hiding (map)
 import Control.Monad.Reader
 import Expr hiding (_and, _or)
@@ -26,8 +27,8 @@ data CompilationError = VariableNotInScope VarName
                       | FunctionNotDefined FnName
                       deriving (Show, Eq)
 
--- State CodeGenState (Reader (StackIndex, Environment, IsTail) (Either CompilationError (Writer Code)))
-type GenReaderState = StateT CodeGenState (ReaderT (StackIndex, Environment, IsTail) (WriterT Code (Either CompilationError)))
+-- State CodeGenState (Reader (StackIndex, Environment, IsTail) (Except CompilationError (Writer Code)))
+type GenReaderState = StateT CodeGenState (ReaderT (StackIndex, Environment, IsTail) (WriterT Code (Except CompilationError)))
 
 type CodeGen = GenReaderState ()
 

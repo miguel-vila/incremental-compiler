@@ -5,6 +5,7 @@ import Data.HashMap hiding (map)
 import Control.Monad.Writer.Lazy
 import Control.Monad.State.Lazy
 import Control.Monad.Reader
+import Control.Monad.Except
 
 import Expr
 import CodeGen
@@ -16,10 +17,8 @@ import MagicNumbers
 
 lookupPrimitive :: FunctionName -> GenReaderState FnGen
 lookupPrimitive primitiveName =
-  let var = maybe (WriterT $ Left (FunctionNotDefined primitiveName)) return (lookup primitiveName primitives)
-      var2 = ReaderT (const var)
-  in StateT (\s -> fmap (\a -> (a,s)) var2 )
-
+  maybe (throwError (FunctionNotDefined primitiveName)) return (lookup primitiveName primitives)
+  
 primitives :: Map FunctionName FnGen
 primitives = unaryPrims `union`
   binaryPrims `union`

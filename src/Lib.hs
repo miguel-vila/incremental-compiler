@@ -9,6 +9,7 @@ import System.Directory
 --import Parser
 import Expr
 import Emitter
+import Control.Monad.Except
 
 compileAndExecute :: Program -> IO String
 compileAndExecute source = do
@@ -24,5 +25,5 @@ compileAndExecute source = do
 
 compileCode :: Program -> String
 compileCode program =
-  let Right(lines) = compile program
+  let Right(lines) = runExcept $ compile program
   in unlines lines

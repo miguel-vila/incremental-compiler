@@ -9,6 +9,7 @@ import System.IO
 import System.Process
 import System.Exit
 import Data.String.Utils
+import Control.Monad.Except
 
 printError :: String -> IO ()
 printError errorMessage =
@@ -42,7 +43,7 @@ removeFormat sourceFileName =
 
 compileScheme :: Program -> IO String
 compileScheme program =
-  case compile program of
+  case runExcept $ compile program of
     Left compilationError -> do
       printError "Failed compilation:"
       printErrorAndExit (show compilationError)

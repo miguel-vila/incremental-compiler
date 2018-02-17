@@ -5,6 +5,7 @@ import Data.HashMap hiding (map)
 import Control.Monad.Writer.Lazy
 import Control.Monad.State.Lazy
 import Control.Monad.Reader
+import Control.Monad.Except
 
 import MagicNumbers
 import Expr hiding (_and, _or)
@@ -28,10 +29,10 @@ initialEnvironment = Environment empty empty
 initialIsTail :: IsTail
 initialIsTail = True
 
-compile :: Program -> Either CompilationError Code
+compile :: Program -> Except CompilationError Code
 compile = executeGen . emitProgram
 
-executeGen :: CodeGen -> Either CompilationError Code
+executeGen :: CodeGen -> Except CompilationError Code
 executeGen codeGen = execWriterT $
   runReaderT (evalStateT codeGen initialState)
              (initialStackIndex, initialEnvironment, initialIsTail)
@@ -80,10 +81,7 @@ ifEqReturnTrue = emitBooleanByComparison Eq
 getVarIndex :: VarName -> GenReaderState StackIndex
 getVarIndex varName = do
   env <- getEnv
-  let var = maybe (WriterT $ Left (VariableNotInScope varName)) return (lookup varName (varEnv env)) :: WriterT Code (Either CompilationError) StackIndex
-  let var2 = ReaderT (const var) :: ReaderT (StackIndex, Environment, IsTail) (WriterT Code (Either CompilationError)) StackIndex
-  let var3 = StateT (\s -> fmap (\a -> (a,s)) var2 ) :: GenReaderState StackIndex
-  var3
+  maybe (throwError (VariableNotInScope varName)) return (lookup varName (varEnv env))
 
 emitReturnIfTail :: CodeGen
 emitReturnIfTail = do
@@ -140,10 +138,7 @@ emitAdjustBase f = do
 getFnLabel :: FunctionName -> GenReaderState Label
 getFnLabel fnName = do
   env <- getEnv
-  let var = maybe (WriterT $ Left (FunctionNotDefined fnName)) return (lookup fnName (fnEnv env))
-  let var2 = ReaderT (const var)
-  let var3 = StateT (\s -> fmap (\a -> (a,s)) var2 )
-  var3
+  maybe (throwError (FunctionNotDefined fnName)) return (lookup fnName (fnEnv env))
 
 collapseStack :: Int -> StackIndex -> StackIndex -> CodeGen
 collapseStack 0 _ _ =

@@ -29,15 +29,15 @@ wrap code =
 
 exprShouldEmit :: ParsedExpr -> Code -> Expectation
 exprShouldEmit expr code =
-  (compile $ Expr expr) `shouldBe` (Right $ wrap code)
+  (compile $ Expr expr) `shouldBe` (return $ wrap code)
 
 programShouldEmit :: Program -> (Code, Code) -> Expectation
 programShouldEmit program (prefix,exprCode) =
-  (compile program) `shouldBe` (Right $ prefix ++ wrap exprCode)
+  (compile program) `shouldBe` (return $ prefix ++ wrap exprCode)
 
 shouldErrorWith :: Program -> CompilationError -> Expectation
 shouldErrorWith program error =
-  (compile program) `shouldBe` (Left error)
+  (compile program) `shouldBe` (throwError error)
 
 type ExprTestCase = (ParsedExpr, Code)
 
