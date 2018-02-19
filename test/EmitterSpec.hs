@@ -83,10 +83,10 @@ tailRecTestCases =
      , tabbed "movl -4(%esp), %eax"
      , tabbed "movl %eax, -12(%esp)"
      , tabbed "cmp $0, %eax"
-     , tabbed "jne L_1"
+     , tabbed "jne L_0"
      , tabbed "movl -8(%esp), %eax"
      , tabbed "ret"
-     , "L_1:"
+     , "L_0:"
      , tabbed "movl -4(%esp), %eax" -- emit args
      , tabbed "subl $4, %eax"
      , tabbed "movl %eax, -16(%esp)"

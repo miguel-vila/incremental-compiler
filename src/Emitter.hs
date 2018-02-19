@@ -29,13 +29,9 @@ initialEnvironment = Environment empty empty
 initialIsTail :: IsTail
 initialIsTail = True
 
-compile :: Program -> Except CompilationError Code
-compile = executeGen . emitProgram
-
-executeGen :: CodeGen -> Except CompilationError Code
-executeGen codeGen = execWriterT $
-  runReaderT (evalStateT codeGen initialState)
-             (initialStackIndex, initialEnvironment, initialIsTail)
+executeGen :: CodeGen -> CompilerContext -> Except CompilationError Code
+executeGen codeGen initialContext = execWriterT $
+  runReaderT (evalStateT codeGen initialState) initialContext
 
 saveRegistersInsts :: Code
 saveRegistersInsts = map tabbed
@@ -334,24 +330,17 @@ emitLambda label lmb = do
           let withLocalSiEnv = local (\(si,env,isTail) -> (nextStackIndex si, insertVarBinding arg si env, isTail) )
           withLocalSiEnv $ emitParams restOfArgs
 
--- @TODO whole function is very ugly, refactor!
-emitLetRec :: [LambdaBinding] -> Expr -> CodeGen
-emitLetRec bindings programBody = do
-  lambdasWithLabels <- mapM lambdaNameLabelPair bindings
-  let fnBindings = fromList $ map (\(bind, label) -> (functionName bind, label)) lambdasWithLabels
-  (si, emptyEnv, isTail) <- ask
-  let envWithFnBindings = emptyEnv { fnEnv = fnBindings }
-  let withFnBindings = local (const (si, envWithFnBindings, isTail))
-  withFnBindings $ mapM_ emitLambdaBinding lambdasWithLabels
-  wrapInEntryPoint $ withFnBindings (asExpr $ emitExprBase programBody)
-  where lambdaNameLabelPair bind =
-          do label <- uniqueLambdaLabel (functionName bind)
-             return (bind, label)
-        emitLambdaBinding (LambdaBinding _ lmb, label) =
-          emitLambda label lmb
-
-emitProgram :: Program -> CodeGen
-emitProgram (Expr expr) =
-  wrapInEntryPoint $ asExpr $ emitExprBase $ desugar expr
-emitProgram (LetRec bindings letBody) =
-  emitLetRec (map (fmap desugar) bindings) (desugar letBody)
+compile :: Program -> Except CompilationError Code
+compile (Expr expr) =
+  let gen = wrapInEntryPoint $ asExpr $ emitExprBase $ desugar expr
+  in executeGen gen (initialStackIndex, initialEnvironment, initialIsTail)
+compile (LetRec regularBindings programBody) =
+  let bindings = (map (fmap desugar) regularBindings)
+      lambdasWithLabels = zip bindings (uniqueLambdaLabels (length bindings))
+      fnBindings = fromList $ map (\(bind, label) -> (functionName bind, label)) lambdasWithLabels
+      envWithFnBindings = Environment { varEnv = empty, fnEnv = fnBindings }
+      initial = (initialStackIndex, envWithFnBindings, initialIsTail)
+      emitLambdaBinding (LambdaBinding _ lmb, label) = emitLambda label lmb
+      gen = do mapM_ emitLambdaBinding lambdasWithLabels
+               wrapInEntryPoint (asExpr $ emitExprBase (desugar programBody))
+  in executeGen gen initial

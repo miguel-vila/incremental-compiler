@@ -27,8 +27,10 @@ data CompilationError = VariableNotInScope VarName
                       | FunctionNotDefined FnName
                       deriving (Show, Eq)
 
--- State CodeGenState (Reader (StackIndex, Environment, IsTail) (Except CompilationError (Writer Code)))
-type GenReaderState = StateT CodeGenState (ReaderT (StackIndex, Environment, IsTail) (WriterT Code (Except CompilationError)))
+type CompilerContext = (StackIndex, Environment, IsTail)
+
+-- State CodeGenState (Reader CompilerContext (Except CompilationError (Writer Code)))
+type GenReaderState = StateT CodeGenState (ReaderT CompilerContext (WriterT Code (Except CompilationError)))
 
 type CodeGen = GenReaderState ()
 
@@ -167,11 +169,11 @@ uniqueLabel = do
   modify (+1)
   return $ "L_" ++ show s
 
-uniqueLambdaLabel :: String -> GenReaderState Label
-uniqueLambdaLabel _ = do
-  s <- get
-  modify (+1)
-  return $ "Lambda_" ++ show s
+lambdaLabel :: CodeGenState -> Label
+lambdaLabel s = "Lambda_" ++ show s
+
+uniqueLambdaLabels :: Int -> [Label]
+uniqueLambdaLabels n = lambdaLabel <$> [0..(n-1)] 
 
 stackValueAt :: StackIndex -> String
 stackValueAt si = show si ++ "(%esp)"
