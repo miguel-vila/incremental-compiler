@@ -1,10 +1,8 @@
 module CodeGen where
 
-import Control.Monad.Writer.Lazy
-import Control.Monad.State.Lazy
 import Control.Monad.Except
+import Control.Monad.Trans.RWS
 import Data.HashMap hiding (map)
-import Control.Monad.Reader
 import Expr hiding (_and, _or)
 import MagicNumbers
 
@@ -29,8 +27,7 @@ data CompilationError = VariableNotInScope VarName
 
 type CompilerContext = (StackIndex, Environment, IsTail)
 
--- State CodeGenState (Reader CompilerContext (Except CompilationError (Writer Code)))
-type GenReaderState = StateT CodeGenState (ReaderT CompilerContext (WriterT Code (Except CompilationError)))
+type GenReaderState = RWST CompilerContext Code CodeGenState (Except CompilationError)
 
 type CodeGen = GenReaderState ()
 

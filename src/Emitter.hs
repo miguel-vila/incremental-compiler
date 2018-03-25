@@ -2,9 +2,7 @@ module Emitter where
 
 import Prelude hiding (lookup)
 import Data.HashMap hiding (map)
-import Control.Monad.Writer.Lazy
-import Control.Monad.State.Lazy
-import Control.Monad.Reader
+import Control.Monad.Trans.RWS
 import Control.Monad.Except
 
 import MagicNumbers
@@ -30,9 +28,8 @@ initialIsTail :: IsTail
 initialIsTail = True
 
 executeGen :: CodeGen -> CompilerContext -> Except CompilationError Code
-executeGen codeGen initialContext = execWriterT $
-  runReaderT (evalStateT codeGen initialState) initialContext
-
+executeGen codeGen initialContext = snd <$> evalRWST codeGen initialContext initialState
+  
 saveRegistersInsts :: Code
 saveRegistersInsts = map tabbed
   [ "movl 4(%esp), %ecx"  -- first parameter (4%esp) points to context struct
